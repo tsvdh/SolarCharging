@@ -1,0 +1,21 @@
+[
+  {
+    "id": "charging_time",
+    "type": "number",
+    "label": {
+      "en": "Charging time",
+      "nl": "Oplaad tijd"
+    },
+    "value": 10,
+    "min": 1,
+    "units": {
+      "en": "Hours",
+      "nl": "Uren"
+    },
+    "hint": {
+      "en": "Time needed to charge the device",
+      "nl": "Tijd nodig om het apparaat op te laden"
+    },
+    "highlight": true
+  }
+]

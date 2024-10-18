@@ -1,0 +1,11 @@
+{
+  "conditions": [
+    {
+      "id": "device-should-charge",
+      "title": {
+        "en": "Device should !{{|not}} charge",
+        "nl": "Apparaat moet !{{|niet}} opladen"
+      }
+    }
+  ]
+}

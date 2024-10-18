@@ -1,7 +1,7 @@
 {
   "id": "org.tsvdh.solar-charging",
-  "version": "0.0.1",
-  "compatibility": ">=5.0.0",
+  "version": "0.1.0",
+  "compatibility": ">=12.1.2",
   "sdk": 3,
   "platforms": [
     "local"
@@ -10,7 +10,8 @@
     "en": "Solar Charging"
   },
   "description": {
-    "en": "Automates charging from solar panels"
+    "en": "Automates charging from solar panels",
+    "nl": "Laad automatisch of met zonnepanelen"
   },
   "category": [
     "energy"
