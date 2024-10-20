@@ -28,6 +28,27 @@
     "email": "tsvdhurk@gmail.com"
   },
   "flow": {
+    "actions": [
+      {
+        "title": {
+          "en": "Set power to",
+          "nl": "Vermogen instellen op"
+        },
+        "args": [
+          {
+            "type": "number",
+            "name": "watt",
+            "placeholder": {
+              "en": "power"
+            },
+            "min": 0,
+            "max": 10000,
+            "step": 1
+          }
+        ],
+        "id": "set-power"
+      }
+    ],
     "conditions": [
       {
         "id": "device-should-charge",
@@ -52,6 +73,7 @@
       },
       "class": "evcharger",
       "capabilities": [
+        "measure_luminance",
         "lock_mode"
       ],
       "platforms": [
@@ -79,23 +101,68 @@
       "id": "solar-charger",
       "settings": [
         {
-          "id": "charging_time",
-          "type": "number",
+          "type": "group",
           "label": {
-            "en": "Charging time",
-            "nl": "Oplaad tijd"
+            "en": "Charging",
+            "nl": "Opladen"
           },
-          "value": 10,
-          "min": 1,
-          "units": {
-            "en": "Hours",
-            "nl": "Uren"
-          },
-          "hint": {
-            "en": "Time needed to charge the device",
-            "nl": "Tijd nodig om het apparaat op te laden"
-          },
-          "highlight": true
+          "children": [
+            {
+              "id": "charging_time",
+              "type": "number",
+              "label": {
+                "en": "Time to charge",
+                "nl": "Tijd om op te laden"
+              },
+              "value": 10,
+              "min": 1,
+              "units": {
+                "en": "Hours",
+                "nl": "Uren"
+              },
+              "hint": {
+                "en": "Time needed to charge the device",
+                "nl": "Tijd nodig om het apparaat op te laden"
+              }
+            },
+            {
+              "id": "power_threshold",
+              "type": "number",
+              "label": {
+                "en": "Minimum power",
+                "nl": "Minium vermogen"
+              },
+              "value": 800,
+              "min": 0,
+              "units": {
+                "en": "Watt",
+                "nl": "Watt"
+              },
+              "hint": {
+                "en": "Minimum power to start charging",
+                "nl": "Minium vermogen om op te laden"
+              }
+            },
+            {
+              "id": "average_duration",
+              "type": "number",
+              "label": {
+                "en": "Duration of average power",
+                "nl": "Tijdsduur van gemiddeld vermogen"
+              },
+              "value": 10,
+              "min": 5,
+              "max": 60,
+              "units": {
+                "en": "min",
+                "nl": "min"
+              },
+              "hint": {
+                "en": "Duration to average power of",
+                "nl": "Tijdsduur van gemiddeld vermogen"
+              }
+            }
+          ]
         }
       ]
     }

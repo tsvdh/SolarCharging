@@ -2,7 +2,7 @@
 
 import Homey from 'homey';
 
-module.exports = class MyDriver extends Homey.Driver {
+module.exports = class SolarCharger extends Homey.Driver {
 
   /**
    * onInit is called when the driver is initialized.

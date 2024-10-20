@@ -1,6 +1,13 @@
 'use strict';
 
 import Homey from 'homey';
+import { Collection, MongoClient } from 'mongodb';
+
+type Measurement = {
+  value: number;
+  location: string;
+  timestamp: Date;
+}
 
 module.exports = class ChargingDevice extends Homey.Device {
 
@@ -19,6 +26,30 @@ module.exports = class ChargingDevice extends Homey.Device {
     ['Saturday', 'Zaterdag'],
     ['Sunday', 'Zondag'],
   ];
+
+  dbURI = `mongodb+srv://admin:${Homey.env.MONGO_PASSWORD}@cluster0.jwqp0hp.mongodb.net/?retryWrites=true&w=majority`
+  solarPanelCollection: Collection<Measurement> | undefined;
+
+  measurementsCache: Measurement[] = [];
+
+  async getDBValues(): Promise<Measurement[]> {
+    const documents = await this.solarPanelCollection!.find({ location: 'Tweede Stationsstraat' }).toArray();
+    return documents.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+  }
+
+  getAverageValue(duration: number) : number {
+    duration = Math.min(duration, this.measurementsCache.length);
+
+    const wantedValues = this.measurementsCache.slice(0, duration);
+
+    let average = wantedValues
+      .map((measurement) => measurement.value)
+      .reduce((accumulator, current) => accumulator + current);
+
+    average /= duration;
+
+    return average;
+  }
 
   getDays(): object {
     const days = [];
@@ -40,7 +71,15 @@ module.exports = class ChargingDevice extends Homey.Device {
    * onInit is called when the device is initialized.
    */
   async onInit() {
-    await this.removeCapability('onoff');
+    const client = new MongoClient(this.dbURI);
+    await client.connect();
+
+    const db = client.db('Measurements');
+    await db.command({ ping: 1 });
+
+    this.solarPanelCollection = db.collection<Measurement>('SolarPanels');
+
+    this.log('Connected to DB');
 
     await this.removeCapability('lock_mode');
 
@@ -74,6 +113,24 @@ module.exports = class ChargingDevice extends Homey.Device {
       this.hourWhenCharged = parseInt(value, 10);
     });
 
+    await this.addCapability('measure_luminance');
+    await this.setCapabilityOptions('measure_luminance', {
+      decimals: 0,
+      units: 'W',
+      title: {
+        en: 'Power average',
+        nl: 'Gemiddeld vermogen',
+      },
+    });
+
+    const updater = async () => {
+      this.measurementsCache = await this.getDBValues();
+      await this.setCapabilityValue('measure_luminance', this.getAverageValue(this.getSetting('average_duration')));
+    };
+
+    await updater();
+    this.homey.setInterval(updater, 1000 * 60);
+
     this.shouldChargeCalculator = async () => {
       const formatter = new Intl.DateTimeFormat([], {
         timeZone: this.homey.clock.getTimezone(),
@@ -105,13 +162,16 @@ module.exports = class ChargingDevice extends Homey.Device {
         wantedHours += 24 * 7;
       }
 
-      const shouldCharge = wantedHours - curHours <= this.hoursToCharge;
-      if (shouldCharge) {
+      const shouldChargeTime = wantedHours - curHours <= this.hoursToCharge;
+      if (shouldChargeTime) {
         await this.setCapabilityValue('lock_mode.status', 'charging');
       } else {
         await this.setCapabilityValue('lock_mode.status', 'waiting');
       }
-      return shouldCharge;
+
+      const shouldChargeSun = this.getAverageValue(this.getSetting('average_duration')) > this.getSetting('power_threshold');
+
+      return shouldChargeTime || shouldChargeSun;
     };
 
     const deviceShouldChargeCondition = this.homey.flow.getConditionCard('device-should-charge');

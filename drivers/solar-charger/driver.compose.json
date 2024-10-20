@@ -4,6 +4,7 @@
   },
   "class": "evcharger",
   "capabilities": [
+    "measure_luminance",
     "lock_mode"
   ],
   "platforms": [
