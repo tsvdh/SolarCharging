@@ -1,3 +1,8 @@
 {
-  "extends": "athom/homey-app"
+  "extends": "athom/homey-app",
+  "rules": {
+    "strict": "off",
+    "brace-style": "off",
+    "no-trailing-spaces": "off"
+  }
 }

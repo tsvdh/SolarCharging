@@ -161,6 +161,23 @@
                 "en": "Duration to average power of",
                 "nl": "Tijdsduur van gemiddeld vermogen"
               }
+            },
+            {
+              "id": "minimum_time",
+              "type": "number",
+              "label": {
+                "en": "Minimum time",
+                "nl": "Minimale tijd"
+              },
+              "value": 60,
+              "units": {
+                "en": "min",
+                "nl": "min"
+              },
+              "hint": {
+                "en": "Minimum time before state can change",
+                "nl": "Minimale tijd voordat staat kan veranderen"
+              }
             }
           ]
         }
