@@ -1,0 +1,10 @@
+{
+  "type": "string",
+  "title": {
+    "en": "Date",
+    "nl": "Datum"
+  },
+  "getable": true,
+  "setable": false,
+  "icon":"/assets/calendar.svg"
+}

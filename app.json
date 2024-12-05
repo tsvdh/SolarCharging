@@ -74,7 +74,8 @@
       "class": "evcharger",
       "capabilities": [
         "measure_luminance",
-        "lock_mode"
+        "lock_mode",
+        "date_shower"
       ],
       "platforms": [
         "local"
@@ -100,6 +101,89 @@
       },
       "id": "solar-charger",
       "settings": [
+        {
+          "type": "group",
+          "highlight": true,
+          "label": {
+            "en": "Opgeladen op",
+            "nl": "Charged at"
+          },
+          "children": [
+            {
+              "id": "charged_hour",
+              "type": "number",
+              "label": {
+                "en": "Hour",
+                "nl": "Uur"
+              },
+              "min": 0,
+              "max": 23,
+              "units": {
+                "en": "h",
+                "nl": "u"
+              }
+            },
+            {
+              "id": "charged_day",
+              "type": "dropdown",
+              "label": {
+                "en": "Day",
+                "nl": "Dag"
+              },
+              "values": [
+                {
+                  "id": "0",
+                  "label": {
+                    "en": "Monday",
+                    "nl": "Maandag"
+                  }
+                },
+                {
+                  "id": "1",
+                  "label": {
+                    "en": "Tuesday",
+                    "nl": "Dinsdag"
+                  }
+                },
+                {
+                  "id": "2",
+                  "label": {
+                    "en": "Wednesday",
+                    "nl": "Woensdag"
+                  }
+                },
+                {
+                  "id": "3",
+                  "label": {
+                    "en": "Thursday",
+                    "nl": "Donderdag"
+                  }
+                },
+                {
+                  "id": "4",
+                  "label": {
+                    "en": "Friday",
+                    "nl": "Vrijdag"
+                  }
+                },
+                {
+                  "id": "5",
+                  "label": {
+                    "en": "Saturday",
+                    "nl": "Zaterdag"
+                  }
+                },
+                {
+                  "id": "6",
+                  "label": {
+                    "en": "Sunday",
+                    "nl": "Zondag"
+                  }
+                }
+              ]
+            }
+          ]
+        },
         {
           "type": "group",
           "label": {
@@ -183,5 +267,17 @@
         }
       ]
     }
-  ]
+  ],
+  "capabilities": {
+    "date_shower": {
+      "type": "string",
+      "title": {
+        "en": "Date",
+        "nl": "Datum"
+      },
+      "getable": true,
+      "setable": false,
+      "icon": "/assets/calendar.svg"
+    }
+  }
 }

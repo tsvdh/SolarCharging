@@ -14,10 +14,6 @@ type StateChange = {
 
 module.exports = class ChargingDevice extends Homey.Device {
 
-  hoursToCharge: number = -1;
-  dayWhenCharged: number = -1;
-  hourWhenCharged: number = -1;
-
   shouldChargeCalculator?: () => Promise<boolean>;
 
   days: string[][] = [
@@ -56,22 +52,6 @@ module.exports = class ChargingDevice extends Homey.Device {
     return average;
   }
 
-  getDays(): object {
-    const days = [];
-    for (let i = 0; i < 7; i++) {
-      days.push({ id: i.toString(), title: { en: this.days[i][0], nl: this.days[i][1] } });
-    }
-    return days;
-  }
-
-  getHours(): object {
-    const hours = [];
-    for (let i = 0; i < 24; i++) {
-      hours.push({ id: i.toString(), title: i.toString() });
-    }
-    return hours;
-  }
-
   /**
    * onInit is called when the device is initialized.
    */
@@ -101,26 +81,9 @@ module.exports = class ChargingDevice extends Homey.Device {
       ],
     });
 
-    await this.addCapability('lock_mode.day');
-    await this.setCapabilityOptions('lock_mode.day', {
-      title: { en: 'Day', nl: 'Dag' },
-      values: this.getDays(),
-    });
-    await this.setCapabilityValue('lock_mode.day', '0');
-
-    this.registerCapabilityListener('lock_mode.day', async (value) => {
-      this.dayWhenCharged = parseInt(value, 10);
-    });
-
-    await this.addCapability('lock_mode.hour');
-    await this.setCapabilityOptions('lock_mode.hour', {
-      title: { en: 'Hour', nl: 'Uur' },
-      values: this.getHours(),
-    });
-    await this.setCapabilityValue('lock_mode.hour', '0');
-
-    this.registerCapabilityListener('lock_mode.hour', async (value) => {
-      this.hourWhenCharged = parseInt(value, 10);
+    await this.addCapability('date_shower');
+    await this.setCapabilityOptions('date_shower', {
+      title: { en: 'Charged by', nl: 'Opgeladen voor' },
     });
 
     await this.addCapability('measure_luminance');
@@ -167,13 +130,15 @@ module.exports = class ChargingDevice extends Homey.Device {
       }
 
       const curHours = curHour + 24 * curDay;
-      let wantedHours = this.hourWhenCharged + 24 * this.dayWhenCharged;
+
+      const chargedDay = parseInt(this.getSetting('charged_day'), 10);
+      let wantedHours = this.getSetting('charged_hour') + 24 * chargedDay;
 
       if (wantedHours < curHours) {
         wantedHours += 24 * 7;
       }
 
-      const shouldChargeTime = wantedHours - curHours <= this.hoursToCharge;
+      const shouldChargeTime = wantedHours - curHours <= this.getSetting('charging_time');
 
       const shouldChargeSun = this.measurementsCache.length > 0
         ? this.getAverageValue(this.getSetting('average_duration')) > this.getSetting('power_threshold')
@@ -211,10 +176,6 @@ module.exports = class ChargingDevice extends Homey.Device {
     const deviceShouldChargeCondition = this.homey.flow.getConditionCard('device-should-charge');
     deviceShouldChargeCondition.registerRunListener(this.shouldChargeCalculator);
 
-    this.hoursToCharge = this.getSetting('charging_time');
-    this.hourWhenCharged = parseInt(this.getCapabilityValue('lock_mode.hour'), 10);
-    this.dayWhenCharged = parseInt(this.getCapabilityValue('lock_mode.day'), 10);
-
     this.log(`${this.getName()} has been initialized`);
   }
 
@@ -242,10 +203,13 @@ module.exports = class ChargingDevice extends Homey.Device {
     newSettings: { [key: string]: boolean | string | number | undefined | null };
     changedKeys: string[];
   }): Promise<string | void> {
-    if ('charging_time' in changedKeys) {
-      this.hoursToCharge = <number>newSettings['charging_time'];
-      await this.shouldChargeCalculator?.();
-    }
+    const curLang = this.homey.i18n.getLanguage();
+    const langIndex: number = curLang === 'en' ? 0 : 1;
+
+    const day = this.days[<number>newSettings['charged_day']][langIndex];
+    const hour = `${<number>newSettings['charged_hour']}:00`;
+
+    await this.setCapabilityValue('date_shower', `${day} ${hour}`);
 
     this.log(`${this.getName()} ${changedKeys} settings were changed`);
   }

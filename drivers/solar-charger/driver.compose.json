@@ -5,7 +5,8 @@
   "class": "evcharger",
   "capabilities": [
     "measure_luminance",
-    "lock_mode"
+    "lock_mode",
+    "date_shower"
   ],
   "platforms": [
     "local"
