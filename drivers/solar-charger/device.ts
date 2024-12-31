@@ -7,9 +7,10 @@ type Measurement = {
   timestamp: Date;
 }
 
-type StateChange = {
+type ChargingState = {
+  name: string;
+  deviceName: string;
   timestamp: Date;
-  newState: boolean;
 }
 
 module.exports = class ChargingDevice extends Homey.Device {
@@ -28,10 +29,11 @@ module.exports = class ChargingDevice extends Homey.Device {
 
   dbURI = `mongodb+srv://admin:${Homey.env.MONGO_PASSWORD}@cluster0.jwqp0hp.mongodb.net/?retryWrites=true&w=majority`
   solarPanelCollection: Collection<Measurement> | undefined;
+  chargingCollection: Collection<ChargingState> | undefined;
 
   measurementsCache: Measurement[] = [];
 
-  lastChange: StateChange = { newState: false, timestamp: new Date(0, 0) }
+  lastChange: ChargingState = { name: 'waiting', deviceName: this.getName(), timestamp: new Date(0, 0) }
 
   async getDBValues(): Promise<Measurement[]> {
     const documents = await this.solarPanelCollection!.find({ location: 'Tweede Stationsstraat' }).toArray();
@@ -59,10 +61,14 @@ module.exports = class ChargingDevice extends Homey.Device {
     const client = new MongoClient(this.dbURI);
     await client.connect();
 
-    const db = client.db('Measurements');
-    await db.command({ ping: 1 });
+    const measurementsDB = client.db('Measurements');
+    await measurementsDB.command({ ping: 1 });
 
-    this.solarPanelCollection = db.collection<Measurement>('SolarPanels');
+    const loggingDB = client.db('Logging');
+    await loggingDB.command({ ping: 1 });
+
+    this.solarPanelCollection = measurementsDB.collection<Measurement>('SolarPanels');
+    this.chargingCollection = loggingDB.collection<ChargingState>('Charging');
 
     this.log('Connected to DB');
 
@@ -74,10 +80,9 @@ module.exports = class ChargingDevice extends Homey.Device {
       setable: false,
       values: [
         { id: 'charging_schedule', title: { en: 'Charging (schedule', nl: 'Opladen (schema)' } },
-        { id: 'charging_time', title: { en: 'Charging (time)', nl: 'Opladen (tijd)' } },
+        { id: 'charging_min_time', title: { en: 'Charging (mininum time)', nl: 'Opladen (minimale tijd)' } },
         { id: 'charging_sun', title: { en: 'Charging (sun)', nl: 'Opladen (zon)' } },
-        { id: 'waiting_time', title: { en: 'Waiting (time)', nl: 'Wachten (tijd)' } },
-        { id: 'waiting_sun', title: { en: 'Waiting (sun)', nl: 'Wachten (zon)' } },
+        { id: 'waiting', title: { en: 'Waiting', nl: 'Wachten' } },
       ],
     });
 
@@ -138,7 +143,7 @@ module.exports = class ChargingDevice extends Homey.Device {
         wantedHours += 24 * 7;
       }
 
-      const shouldChargeTime = wantedHours - curHours <= this.getSetting('charging_time');
+      const shouldChargeSchedule = wantedHours - curHours <= this.getSetting('charging_time');
 
       const shouldChargeSun = this.measurementsCache.length > 0
         ? this.getAverageValue(this.getSetting('average_duration')) > this.getSetting('power_threshold')
@@ -150,31 +155,49 @@ module.exports = class ChargingDevice extends Homey.Device {
         // this.log(new Date().getTime() - this.lastChange.timestamp.getTime(), minimumMillis);
         // this.log(shouldChargeTime, shouldChargeSun, this.lastChange.newState);
 
-        if (shouldChargeTime && !this.lastChange.newState) {
-          this.lastChange = { newState: true, timestamp: new Date() };
+        let putInDB = true;
+
+        if (shouldChargeSchedule && this.lastChange.name !== 'charging_schedule') {
+          this.lastChange = { name: 'charging_schedule', deviceName: this.getName(), timestamp: new Date() };
           await this.setCapabilityValue('lock_mode.status', 'charging_schedule');
         }
-        else if (shouldChargeSun && !this.lastChange.newState) {
-          this.lastChange = { newState: true, timestamp: new Date() };
-          await this.setCapabilityValue('lock_mode.status', 'charging_time');
+        else if (shouldChargeSchedule && this.lastChange.name === 'charging_schedule') {
+          putInDB = false;
         }
-        else if (shouldChargeSun && this.lastChange.newState) {
+        else if (shouldChargeSun && this.lastChange.name !== 'charging_sun' && this.lastChange.name !== 'charging_min_time') {
+          this.lastChange = { name: 'charging_min_time', deviceName: this.getName(), timestamp: new Date() };
+          await this.setCapabilityValue('lock_mode.status', 'charging_min_time');
+        }
+        else if (shouldChargeSun && this.lastChange.name === 'charging_sun') {
+          putInDB = false;
+        }
+        else if (shouldChargeSun && this.lastChange.name === 'charging_min_time') {
+          this.lastChange = { name: 'charging_sun', deviceName: this.getName(), timestamp: new Date() };
           await this.setCapabilityValue('lock_mode.status', 'charging_sun');
         }
-        else if (this.lastChange.newState) {
-          this.lastChange = { newState: false, timestamp: new Date() };
-          await this.setCapabilityValue('lock_mode.status', 'waiting_time');
+        else if (!shouldChargeSchedule && !shouldChargeSun && this.lastChange.name !== 'waiting') {
+          this.lastChange = { name: 'waiting', deviceName: this.getName(), timestamp: new Date() };
+          await this.setCapabilityValue('lock_mode.status', 'waiting');
         }
-        else if (!this.lastChange.newState) {
-          await this.setCapabilityValue('lock_mode.status', 'waiting_sun');
+        else {
+          putInDB = false;
+        }
+
+        if (putInDB) {
+          await this.chargingCollection!.insertOne({
+            name: await this.getCapabilityValue('lock_mode.status'),
+            deviceName: this.getName(),
+            timestamp: new Date(),
+          });
         }
       }
 
-      return this.lastChange.newState;
+      return this.lastChange.name !== 'waiting';
     };
 
     const deviceShouldChargeCondition = this.homey.flow.getConditionCard('device-should-charge');
     deviceShouldChargeCondition.registerRunListener(this.shouldChargeCalculator);
+    await this.shouldChargeCalculator();
 
     this.log(`${this.getName()} has been initialized`);
   }
