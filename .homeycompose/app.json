@@ -1,5 +1,5 @@
 {
-  "id": "org.tsvdh.solar-charging",
+  "id": "org.tsvdh.smart-energy",
   "version": "0.1.0",
   "compatibility": ">=12.1.2",
   "sdk": 3,
@@ -7,11 +7,11 @@
     "local"
   ],
   "name": {
-    "en": "Solar Charging"
+    "en": "Smart Energy"
   },
   "description": {
-    "en": "Automates charging from solar panels",
-    "nl": "Laad automatisch of met zonnepanelen"
+    "en": "Automates and gives tips about energy usage at home",
+    "nl": "Automatiseert and geeft tips over energie gebruik thuis"
   },
   "category": [
     "energy"

@@ -1,6 +1,6 @@
 {
   "name": {
-    "en": "Solar Charger"
+    "en": "Device Charger"
   },
   "class": "evcharger",
   "capabilities": [

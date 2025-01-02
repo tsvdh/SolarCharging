@@ -1,14 +1,12 @@
-'use strict';
-
 import Homey from 'homey';
 
-module.exports = class SolarCharger extends Homey.Driver {
+module.exports = class Driver extends Homey.Driver {
 
   /**
    * onInit is called when the driver is initialized.
    */
   async onInit() {
-    this.log('Solar Charger has been initialized');
+    this.log('Price Helper has been initialized');
   }
 
   /**
@@ -18,15 +16,9 @@ module.exports = class SolarCharger extends Homey.Driver {
   async onPairListDevices() {
     return [
       {
-        name: 'Car',
+        name: 'Boiler',
         data: {
           id: '0',
-        },
-      },
-      {
-        name: 'Bike',
-        data: {
-          id: '1',
         },
       },
     ];

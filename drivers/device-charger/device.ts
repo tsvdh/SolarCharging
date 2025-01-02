@@ -1,5 +1,8 @@
 import Homey from 'homey';
 import { Collection, MongoClient } from 'mongodb';
+// eslint-disable-next-line import/extensions,import/no-unresolved,node/no-missing-import
+import { PriceHandler, PriceHandlerMode } from '../price_handler';
+import DateHandler from '../date_handler';
 
 type Measurement = {
   value: number;
@@ -13,7 +16,7 @@ type ChargingState = {
   timestamp: Date;
 }
 
-module.exports = class ChargingDevice extends Homey.Device {
+module.exports = class Device extends Homey.Device {
 
   shouldChargeCalculator?: () => Promise<boolean>;
 
@@ -112,16 +115,8 @@ module.exports = class ChargingDevice extends Homey.Device {
     this.homey.setInterval(updater, 1000 * 60);
 
     this.shouldChargeCalculator = async () => {
-      const formatter = new Intl.DateTimeFormat([], {
-        timeZone: this.homey.clock.getTimezone(),
-        hour: '2-digit',
-        weekday: 'long',
-        hour12: false,
-      });
-
-      const timeParts = formatter.formatToParts(new Date());
-      const curHour = parseInt(timeParts.find((part) => part.type === 'hour')!.value, 10);
-      const curDayName = timeParts.find((part) => part.type === 'weekday')!.value;
+      const curHour = DateHandler.getDatePartAsNumber('hour');
+      const curDayName = DateHandler.getDatePart('weekday');
 
       let curDay = -1;
       for (let i = 0; i < 7; i++) {

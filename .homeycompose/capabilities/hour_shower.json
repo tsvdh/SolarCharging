@@ -1,0 +1,10 @@
+{
+  "type": "string",
+  "title": {
+    "en": "Hours",
+    "nl": "Uren"
+  },
+  "getable": true,
+  "setable": false,
+  "icon":"/assets/clock.svg"
+}
