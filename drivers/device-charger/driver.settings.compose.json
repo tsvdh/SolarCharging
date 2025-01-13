@@ -8,6 +8,15 @@
     },
     "children": [
       {
+        "id": "schedule_active",
+        "type": "checkbox",
+        "value": false,
+        "label": {
+          "en": "Schedule active",
+          "nl": "Schema actief"
+        }
+      },
+      {
         "id": "charged_hour",
         "type": "number",
         "label": {

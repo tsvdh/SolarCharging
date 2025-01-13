@@ -145,7 +145,13 @@ module.exports = class DeviceCharger extends Homey.Device {
       wantedHours += 24 * 7;
     }
 
-    const shouldChargeSchedule = wantedHours - curHours <= this.getSetting('charging_time');
+    const hourDifference = wantedHours - curHours;
+    if (hourDifference <= 0) {
+      await this.setSettings({ schedule_active: false });
+    }
+
+    const curTimeWithinScheduleTime = wantedHours - curHours <= this.getSetting('charging_time');
+    const shouldChargeSchedule = (<boolean> this.getSetting('schedule_active')) && curTimeWithinScheduleTime;
 
     const shouldChargeSun: boolean = this.measurementsCache.length > 0
       ? this.getAverageValue(this.getSetting('average_duration')) > this.getSetting('power_threshold')
