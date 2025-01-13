@@ -1,11 +1,31 @@
 import Homey from 'homey';
+// eslint-disable-next-line import/extensions,import/no-unresolved,node/no-missing-import
+import { PriceHandler } from '../price_handler';
+// eslint-disable-next-line import/extensions,import/no-unresolved,node/no-missing-import
+import DateHandler from '../date_handler';
 
 module.exports = class Device extends Homey.Device {
+
+  priceHandler!: PriceHandler;
 
   /**
    * onInit is called when the device is initialized.
    */
   async onInit() {
+    this.priceHandler = await PriceHandler.makeInstance(0, 23);
+    this.log('Connected to DB');
+
+    const shouldBeOnCalculator = async () => {
+      const curHour = DateHandler.getDatePartAsNumber('hour');
+
+      // TODO: replace placeholder temporary code
+      const lowestHours = await this.priceHandler.getXLowest(18);
+      return lowestHours.map((x) => x.hour).includes(curHour);
+    };
+
+    const deviceShouldBeOnCondition = this.homey.flow.getConditionCard('device-should-be-on');
+    deviceShouldBeOnCondition.registerRunListener(shouldBeOnCalculator);
+
     this.log(`${this.getName()} has been initialized`);
   }
 

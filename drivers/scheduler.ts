@@ -10,9 +10,17 @@ export default class Scheduler {
     this.app = app;
   }
 
+  public static setIntervalAsync(callback: () => Promise<void>, ms: number) {
+    this.app.homey.setInterval(callback, ms);
+  }
+
+  public static setInterval(callback: () => void, ms: number) {
+    this.app.homey.setInterval(callback, ms);
+  }
+
   static dayLastRun: number[] = [];
 
-  public static scheduleAsync(runTime: number, callback: () => Promise<void>): void {
+  public static scheduleAsync(runHour: number, callback: () => Promise<void>): void {
     const id = this.dayLastRun.length;
     this.dayLastRun.push(-1);
 
@@ -22,7 +30,7 @@ export default class Scheduler {
         return;
       }
 
-      if (runTime === DateHandler.getDatePartAsNumber('hour')) {
+      if (runHour === DateHandler.getDatePartAsNumber('hour')) {
         await callback();
         this.dayLastRun[id] = today;
       }
@@ -31,8 +39,8 @@ export default class Scheduler {
     Scheduler.app.homey.setInterval(() => callbackRunner(id), 1000 * 60 * 5);
   }
 
-  public static schedule(runTime: number, callback: () => void): void {
-    this.scheduleAsync(runTime, async () => callback());
+  public static schedule(runHour: number, callback: () => void): void {
+    this.scheduleAsync(runHour, async () => callback());
   }
 
 }

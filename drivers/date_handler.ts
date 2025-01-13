@@ -12,8 +12,9 @@ export default class DateHandler {
     const formatter = new Intl.DateTimeFormat([], {
       timeZone: this.app.homey.clock.getTimezone(),
       hour: '2-digit',
-      weekday: 'long',
       hour12: false,
+      weekday: 'long',
+      day: '2-digit',
     });
 
     const timeParts = formatter.formatToParts(new Date());

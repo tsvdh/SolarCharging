@@ -1,6 +1,8 @@
 import Homey from 'homey';
 import axios from 'axios';
 import { Collection, MongoClient } from 'mongodb';
+// eslint-disable-next-line import/extensions,import/no-unresolved,node/no-missing-import
+import Scheduler from './scheduler';
 
 type PriceData = {
   datum: Date;
@@ -11,6 +13,15 @@ type PriceData = {
 type HourRange = {
   min: number;
   max: number;
+}
+
+export type HourPrice = {
+  hour: number;
+  price: number;
+}
+
+function HourPrice(hour: number, price: number): HourPrice {
+  return { hour, price };
 }
 
 type EnergyPrices = {
@@ -39,12 +50,37 @@ export class PriceHandler {
     return instance;
   }
 
+  public static hoursToString(hourPrices: HourPrice[]): string {
+    const ranges: HourRange[] = [];
+    for (const hourPrice of hourPrices) {
+      const thisHourRange: HourRange = { min: hourPrice.hour, max: hourPrice.hour };
+      if (ranges.length === 0) {
+        ranges.push(thisHourRange);
+      }
+      else if (ranges[ranges.length - 1].max === hourPrice.hour - 1) {
+        ranges[ranges.length - 1].max += 1;
+      } else {
+        ranges.push(thisHourRange);
+      }
+    }
+
+    let result = '';
+    for (const range of ranges) {
+      const multiHourRange = range.min !== range.max;
+      result += `${range.min}${multiHourRange ? `-${range.max}` : ''}, `;
+    }
+    result = result.slice(0, result.length - 2);
+    return result;
+  }
+
   private dbURI = `mongodb+srv://admin:${Homey.env.MONGO_PASSWORD}@cluster0.jwqp0hp.mongodb.net/?retryWrites=true&w=majority`;
   private energyPricesCollection!: Collection<EnergyPrices>;
   private activeHours: HourRange;
+  private pricesCache: HourPrice[];
 
-  public constructor(minHour: number, maxHour: number) {
+  private constructor(minHour: number, maxHour: number) {
     this.activeHours = { min: minHour, max: maxHour };
+    this.pricesCache = [];
   }
 
   private async init() {
@@ -54,35 +90,56 @@ export class PriceHandler {
     const apiDataDB = client.db('ApiData');
     await apiDataDB.command({ ping: 1 });
     this.energyPricesCollection = apiDataDB.collection<EnergyPrices>('EnergyPrices');
+
+    const updateCache = async () => {
+      this.pricesCache = await this.getPrices();
+    };
+    await updateCache();
+    Scheduler.setIntervalAsync(updateCache, 1000 * 60 * 60);
   }
 
-  private async getPrices(): Promise<number[]> {
+  private async getPrices(): Promise<HourPrice[]> {
     const { prices } = (await this.energyPricesCollection.findOne())!;
-    return prices.slice(this.activeHours.min, this.activeHours.max + 1);
+    return prices
+      .map((x, i): HourPrice => HourPrice(i, x))
+      .slice(this.activeHours.min, this.activeHours.max + 1);
   }
 
-  private getAverage(prices: number[]): number {
-    return prices.reduce((acc, cur) => acc + cur) / prices.length;
+  private getAverage(prices: HourPrice[]): number {
+    return prices.reduce((acc, cur) => HourPrice(-1, acc.price + cur.price)).price / prices.length;
   }
 
-  public async getAboveAverage(): Promise<number[]> {
+  public async getAboveAverage(): Promise<HourPrice[]> {
     return this.getOffsetAboveAverage(0);
   }
 
-  public async getBelowAverage(): Promise<number[]> {
+  public async getBelowAverage(): Promise<HourPrice[]> {
     return this.getOffsetBelowAverage(0);
   }
 
-  public async getOffsetAboveAverage(offset: number): Promise<number[]> {
-    const prices = await this.getPrices();
-    const average = this.getAverage(prices);
-    return prices.filter((x) => x > average + offset);
+  public async getOffsetAboveAverage(offset: number): Promise<HourPrice[]> {
+    const average = this.getAverage(this.pricesCache);
+    return this.pricesCache.filter((x) => x.price > average + offset);
   }
 
-  public async getOffsetBelowAverage(offset: number): Promise<number[]> {
-    const prices = await this.getPrices();
-    const average = this.getAverage(prices);
-    return prices.filter((x) => x < average - offset);
+  public async getOffsetBelowAverage(offset: number): Promise<HourPrice[]> {
+    const average = this.getAverage(this.pricesCache);
+    return this.pricesCache.filter((x) => x.price < average - offset);
+  }
+
+  public async getBelowThreshold(threshold: number): Promise<HourPrice[]> {
+    return this.pricesCache.filter((x) => x.price <= threshold);
+  }
+
+  public async getAboveThreshold(threshold: number): Promise<HourPrice[]> {
+    return this.pricesCache.filter((x) => x.price >= threshold);
+  }
+
+  public async getXLowest(amount: number) : Promise<HourPrice[]> {
+    return this.pricesCache
+      .sort((a, b) => a.price - b.price)
+      .slice(0, amount)
+      .sort((a, b) => a.hour - b.hour);
   }
 
 }

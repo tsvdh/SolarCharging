@@ -1,0 +1,11 @@
+{
+  "conditions": [
+    {
+      "id": "device-should-be-on",
+      "title": {
+        "en": "Device should be on",
+        "nl": "Apparaat moet aan zijn"
+      }
+    }
+  ]
+}

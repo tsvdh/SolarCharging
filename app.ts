@@ -72,6 +72,7 @@ module.exports = class SolarCharging extends Homey.App {
         await this.energyPricesCollection!.insertOne({ prices, timestamp: new Date() });
       }
     };
+    await updater();
     Scheduler.scheduleAsync(0, updater);
 
     this.log('Smart Energy has been initialized');

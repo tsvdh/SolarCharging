@@ -12,13 +12,13 @@ module.exports = class Device extends Homey.Device {
   async onInit() {
     await this.addCapability('hour_shower');
     await this.setCapabilityOptions('hour_shower', {
-      title: { en: 'Best hours to charge', nl: 'Beste uren om op te laden' },
+      title: { en: 'Cheapest hours', nl: 'Goedkoopste uren' },
     });
 
     const showLowPrices = async () => {
-      const priceHandler = new PriceHandler(7, 23);
-      const lowHours: number[] = await priceHandler.getOffsetBelowAverage(0.01);
-      await this.setCapabilityValue('hour_shower', lowHours);
+      const priceHandler = await PriceHandler.makeInstance(7, 23);
+      const lowHours = await priceHandler.getOffsetBelowAverage(0.01);
+      await this.setCapabilityValue('hour_shower', PriceHandler.hoursToString(lowHours));
     };
     await showLowPrices();
     Scheduler.scheduleAsync(0, showLowPrices);

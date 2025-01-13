@@ -16,7 +16,7 @@ module.exports = class Driver extends Homey.Driver {
   async onPairListDevices() {
     return [
       {
-        name: 'Boiler',
+        name: 'Washing machine',
         data: {
           id: '0',
         },

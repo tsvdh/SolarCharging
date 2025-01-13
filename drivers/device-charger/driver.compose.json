@@ -1,6 +1,7 @@
 {
   "name": {
-    "en": "Device Charger"
+    "en": "Device Charger",
+    "nl": "Apparaat oplader"
   },
   "class": "evcharger",
   "capabilities": [

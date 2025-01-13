@@ -131,6 +131,7 @@
           "nl": "Minimale tijd"
         },
         "value": 60,
+        "min": 0,
         "units": {
           "en": "min",
           "nl": "min"
@@ -138,6 +139,23 @@
         "hint": {
           "en": "Minimum time before state can change",
           "nl": "Minimale tijd voordat staat kan veranderen"
+        }
+      },
+      {
+        "id": "price_threshold",
+        "type": "number",
+        "label": {
+          "en": "Price threshold",
+          "nl": "Prijs drempel"
+        },
+        "value": 0.25,
+        "units": "€",
+        "min": 0.01,
+        "max": 1,
+        "step": 0.01,
+        "decimals": 2,
+        "hint": {
+          "en": "Value of energy price for "
         }
       }
     ]
