@@ -15,10 +15,20 @@ export default class DateHandler {
       hour12: false,
       weekday: 'long',
       day: '2-digit',
+      hourCycle: 'h24',
     });
 
     const timeParts = formatter.formatToParts(new Date());
-    return timeParts.find((part) => part.type === partName)!.value;
+    const timePart = timeParts.find((part) => part.type === partName)!.value;
+    if (partName !== 'hour') {
+      return timePart;
+    }
+
+    let hourAsNumber = parseInt(timePart, 10);
+    if (hourAsNumber === 24) {
+      hourAsNumber = 0;
+    }
+    return hourAsNumber.toString(10);
   }
 
   public static getDatePartAsNumber(partName: string): number {
