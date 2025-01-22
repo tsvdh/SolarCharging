@@ -17,8 +17,24 @@ module.exports = class Device extends Homey.Device {
 
     const showLowPrices = async () => {
       const priceHandler = await PriceHandler.makeInstance(7, 23);
-      const lowHours = await priceHandler.getOffsetBelowAverage(0.01);
-      await this.setCapabilityValue('hour_shower', PriceHandler.hoursToString(lowHours));
+      const lowHours = priceHandler.getOffsetBelowAverage(0.01);
+      const averagePrice = priceHandler.getAverage() + PriceHandler.getEssentMargin();
+
+      const curLang = this.homey.i18n.getLanguage();
+      let text: string;
+      switch (curLang) {
+        case 'en':
+          text = 'less than';
+          break;
+        case 'nl':
+          text = 'minder dan';
+          break;
+        default:
+          throw Error('Unsupported language');
+      }
+
+      const message = `${PriceHandler.hoursToString(lowHours)} ${text} €${averagePrice.toFixed(2)}`;
+      await this.setCapabilityValue('hour_shower', message);
     };
     await showLowPrices();
     Scheduler.scheduleAsync(0, showLowPrices);

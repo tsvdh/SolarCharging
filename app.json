@@ -1,7 +1,7 @@
 {
   "_comment": "This file is generated. Please edit .homeycompose/app.json instead.",
   "id": "org.tsvdh.smart-energy",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "compatibility": ">=12.1.2",
   "sdk": 3,
   "platforms": [
@@ -326,12 +326,9 @@
                 "en": "Price threshold",
                 "nl": "Prijs drempel"
               },
-              "value": 0.25,
+              "value": 0.3,
               "units": "€",
-              "min": 0.01,
-              "max": 1,
-              "step": 0.01,
-              "decimals": 2,
+              "min": 0,
               "hint": {
                 "en": "Value of energy price for "
               }
