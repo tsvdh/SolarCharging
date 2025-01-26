@@ -1,7 +1,7 @@
 {
   "_comment": "This file is generated. Please edit .homeycompose/app.json instead.",
   "id": "org.tsvdh.smart-energy",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "compatibility": ">=12.1.2",
   "sdk": 3,
   "platforms": [
@@ -81,6 +81,36 @@
     ]
   },
   "drivers": [
+    {
+      "name": {
+        "en": "Central Control"
+      },
+      "class": "other",
+      "capabilities": [],
+      "platforms": [
+        "local"
+      ],
+      "pair": [
+        {
+          "id": "list_my_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_my_devices"
+          }
+        },
+        {
+          "id": "add_my_devices",
+          "template": "add_devices"
+        }
+      ],
+      "connectivity": [],
+      "images": {
+        "small": "/drivers/central-control/assets/images/small.png",
+        "large": "/drivers/central-control/assets/images/large.png",
+        "xlarge": "/drivers/central-control/assets/images/xlarge.png"
+      },
+      "id": "central-control"
+    },
     {
       "name": {
         "en": "Device Automator",
@@ -317,20 +347,6 @@
               "hint": {
                 "en": "Minimum time before state can change",
                 "nl": "Minimale tijd voordat staat kan veranderen"
-              }
-            },
-            {
-              "id": "price_threshold",
-              "type": "number",
-              "label": {
-                "en": "Price threshold",
-                "nl": "Prijs drempel"
-              },
-              "value": 0.3,
-              "units": "€",
-              "min": 0,
-              "hint": {
-                "en": "Value of energy price for "
               }
             }
           ]

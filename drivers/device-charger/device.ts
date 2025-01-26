@@ -17,6 +17,12 @@ type ChargingState = {
   timestamp: Date;
 }
 
+type ChargingControlData = {
+  priceThreshold: number;
+  active: boolean;
+  name: string;
+}
+
 module.exports = class DeviceCharger extends Homey.Device {
 
   days: string[][] = [
@@ -32,6 +38,7 @@ module.exports = class DeviceCharger extends Homey.Device {
   dbURI = `mongodb+srv://admin:${Homey.env.MONGO_PASSWORD}@cluster0.jwqp0hp.mongodb.net/?retryWrites=true&w=majority`
   solarPanelCollection: Collection<Measurement> | undefined;
   chargingCollection: Collection<ChargingState> | undefined;
+  controlDataCollection: Collection<ChargingControlData> | undefined;
 
   measurementsCache: Measurement[] = [];
 
@@ -71,8 +78,12 @@ module.exports = class DeviceCharger extends Homey.Device {
     const loggingDB = client.db('Logging');
     await loggingDB.command({ ping: 1 });
 
+    const controlDB = client.db('CentralControl');
+    await controlDB.command({ ping: 1 });
+
     this.solarPanelCollection = measurementsDB.collection<Measurement>('SolarPanels');
     this.chargingCollection = loggingDB.collection<ChargingState>('Charging');
+    this.controlDataCollection = controlDB.collection<ChargingControlData>('ControlData');
 
     this.priceHandler = await PriceHandler.makeInstance(0, 23);
 
@@ -90,6 +101,7 @@ module.exports = class DeviceCharger extends Homey.Device {
         { id: 'charging_sun', title: { en: 'Charging (sun)', nl: 'Opladen (zon)' } },
         { id: 'waiting', title: { en: 'Waiting', nl: 'Wachten' } },
         { id: 'charging_low_price', title: { en: 'Charging (low price)', nl: 'Opladen (lage prijs)' } },
+        { id: 'not_active', title: { en: 'Not active', nl: 'Niet actief' } },
       ],
     });
 
@@ -122,6 +134,14 @@ module.exports = class DeviceCharger extends Homey.Device {
   }
 
   async shouldChargeCalculator(): Promise<boolean> {
+    const optControlData = await this.controlDataCollection!.findOne({ name: 'charging_control' });
+    if (!optControlData) {
+      this.error('Control data not found');
+    }
+    const controlData = optControlData!;
+
+    const shouldBeActive = controlData.active;
+
     const curHour = DateHandler.getDatePartAsNumber('hour');
     const curWeekDayName = DateHandler.getDatePart('weekday');
 
@@ -133,7 +153,7 @@ module.exports = class DeviceCharger extends Homey.Device {
       }
     }
     if (curWeekDay === -1) {
-      this.homey.error(`Unknown weekday: ${curWeekDayName}`);
+      this.error(`Unknown weekday: ${curWeekDayName}`);
     }
 
     const curHours = curHour + 24 * curWeekDay;
@@ -158,8 +178,8 @@ module.exports = class DeviceCharger extends Homey.Device {
       : false;
 
     // TODO: get essent price
-    const lowPrice = this.getSetting('price_threshold') - 0.15;
-    const lowHours = await this.priceHandler.getBelowThreshold(lowPrice);
+    const lowPrice = controlData.priceThreshold - 0.15;
+    const lowHours = this.priceHandler.getBelowThreshold(lowPrice);
     const shouldChargeLowPrice = lowHours.map((x) => x.hour).includes(curHour);
 
     const minimumMillis = 1000 * 60 * this.getSetting('minimum_time');
@@ -169,7 +189,15 @@ module.exports = class DeviceCharger extends Homey.Device {
 
       let putInDB = true;
 
-      if (shouldChargeSchedule && this.lastChange.name !== 'charging_schedule') {
+      if (!shouldBeActive && this.lastChange.name !== 'not_active') {
+        this.lastChange = { name: 'not_active', deviceName: this.getName(), timestamp: new Date() };
+        await this.setCapabilityValue('lock_mode.status', 'not_active');
+      }
+      else if (!shouldBeActive && this.lastChange.name === 'not_active') {
+        putInDB = false;
+      }
+
+      else if (shouldChargeSchedule && this.lastChange.name !== 'charging_schedule') {
         this.lastChange = { name: 'charging_schedule', deviceName: this.getName(), timestamp: new Date() };
         await this.setCapabilityValue('lock_mode.status', 'charging_schedule');
       }
@@ -215,7 +243,7 @@ module.exports = class DeviceCharger extends Homey.Device {
     }
 
     // this.log(this.lastChange);
-    return this.lastChange.name !== 'waiting';
+    return this.lastChange.name.includes('charging');
   }
 
   /**

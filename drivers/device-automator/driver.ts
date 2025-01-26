@@ -18,7 +18,7 @@ module.exports = class Driver extends Homey.Driver {
       {
         name: 'Boiler',
         data: {
-          id: '0',
+          id: 'boiler',
         },
       },
     ];

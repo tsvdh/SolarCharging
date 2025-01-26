@@ -6,7 +6,7 @@ module.exports = class Driver extends Homey.Driver {
    * onInit is called when the driver is initialized.
    */
   async onInit() {
-    this.log('Price Helper has been initialized');
+    this.log('Central Control has been initialized');
   }
 
   /**
@@ -16,9 +16,9 @@ module.exports = class Driver extends Homey.Driver {
   async onPairListDevices() {
     return [
       {
-        name: 'Washing machine',
+        name: 'Charging Control',
         data: {
-          id: 'washing_machine',
+          id: 'charging_control',
         },
       },
     ];
