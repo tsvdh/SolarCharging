@@ -7,7 +7,7 @@ import Scheduler from './scheduler';
 type PriceData = {
   datum: Date;
   // eslint-disable-next-line camelcase
-  prijs_excl_btw: string;
+  prijs_excl_belastingen: string;
 }
 
 type HourRange = {
@@ -41,11 +41,11 @@ export class PriceHandler {
     return 0.15;
   }
 
-  private static markedDataURI = `https://jeroen.nl/api/dynamische-energieprijzen?period=vandaag&type=json&key=${Homey.env.JEROEN_API_KEY}`;
+  private static marketDataURI = `https://jeroen.nl/api/dynamische-energieprijzen?period=vandaag&type=json&key=${Homey.env.JEROEN_API_KEY}`;
 
   public static async getData(): Promise<number[]> {
-    const response = await axios.get<PriceData[]>(this.markedDataURI);
-    return response.data.map((x, index) => parseFloat(x.prijs_excl_btw.replace(',', '.')) * 1.21);
+    const response = await axios.get<PriceData[]>(this.marketDataURI);
+    return response.data.map((x, index) => parseFloat(x.prijs_excl_belastingen.replace(',', '.')) * 1.21);
   }
 
   public static async makeInstance(minHour: number, maxHour: number): Promise<PriceHandler> {

@@ -19,7 +19,7 @@ module.exports = class Device extends Homey.Device {
       const curHour = DateHandler.getDatePartAsNumber('hour');
 
       // TODO: replace placeholder temporary code
-      const lowestHours = await this.priceHandler.getXLowest(18);
+      const lowestHours = this.priceHandler.getXLowest(18);
       return lowestHours.map((x) => x.hour).includes(curHour);
     };
 
