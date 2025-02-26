@@ -177,8 +177,7 @@ module.exports = class DeviceCharger extends Homey.Device {
       ? this.getAverageValue(this.getSetting('average_duration')) > this.getSetting('power_threshold')
       : false;
 
-    // TODO: get essent price
-    const lowPrice = controlData.priceThreshold - 0.15;
+    const lowPrice = controlData.priceThreshold - await this.priceHandler.getEssentMargin();
     const lowHours = this.priceHandler.getBelowThreshold(lowPrice);
     const shouldChargeLowPrice = lowHours.map((x) => x.hour).includes(curHour);
 

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Collection, MongoClient } from 'mongodb';
 // eslint-disable-next-line import/extensions,import/no-unresolved,node/no-missing-import
 import Scheduler from './scheduler';
+import BeautifulDom from 'beautiful-dom';
 
 type PriceData = {
   datum: Date;
@@ -36,10 +37,6 @@ export enum PriceHandlerMode {
 }
 
 export class PriceHandler {
-
-  public static getEssentMargin(): number {
-    return 0.15;
-  }
 
   private static marketDataURI = `https://jeroen.nl/api/dynamische-energieprijzen?period=vandaag&type=json&key=${Homey.env.JEROEN_API_KEY}`;
 
@@ -148,6 +145,32 @@ export class PriceHandler {
       .sort((a, b) => a.price - b.price)
       .slice(0, amount)
       .sort((a, b) => a.hour - b.hour);
+  }
+
+  public async getEssentMargin(): Promise<number> {
+    const response = await axios.get('https://www.essent.nl/dynamische-tarieven');
+    if (response.status !== 200) {
+      return 0.15;
+    }
+
+    const parseNumber = (text: string): number => {
+      return parseFloat(text.slice(7).replace(',', '.'));
+    };
+
+    try {
+      const dom = new BeautifulDom(response.data);
+      const priceElements = dom.getElementsByClassName('dynamic-prices-info__amount');
+      const prices: number[] = [];
+      for (const priceElement of priceElements) {
+        prices.push(parseNumber(priceElement.innerText));
+      }
+      const lowestEssentPrice = prices.sort()[0];
+      const lowestMarketPrice = this.pricesCache.sort((a, b) => a.price - b.price)[0].price;
+      return lowestEssentPrice - lowestMarketPrice;
+    }
+    catch (e) {
+      return 0.15;
+    }
   }
 
 }
