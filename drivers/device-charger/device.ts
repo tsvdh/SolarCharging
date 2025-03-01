@@ -43,6 +43,7 @@ module.exports = class DeviceCharger extends Homey.Device {
   measurementsCache: Measurement[] = [];
 
   lastChange: ChargingState = { name: 'not_set', deviceName: this.getName(), timestamp: new Date(0, 0) }
+  lastChargingSwitch: Date = new Date(0);
 
   priceHandler!: PriceHandler;
 
@@ -181,67 +182,63 @@ module.exports = class DeviceCharger extends Homey.Device {
     const lowHours = this.priceHandler.getBelowThreshold(lowPrice);
     const shouldChargeLowPrice = lowHours.map((x) => x.hour).includes(curHour);
 
+    // --- decision tree ---
+    let stateChange = true;
+    let newChange = this.lastChange;
+
+    if (!shouldBeActive && this.lastChange.name !== 'not_active') {
+      newChange = { name: 'not_active', deviceName: this.getName(), timestamp: new Date() };
+    }
+    else if (!shouldBeActive && this.lastChange.name === 'not_active') {
+      stateChange = false;
+    }
+
+    else if (shouldChargeSchedule && this.lastChange.name !== 'charging_schedule') {
+      newChange = { name: 'charging_schedule', deviceName: this.getName(), timestamp: new Date() };
+    }
+    else if (shouldChargeSchedule && this.lastChange.name === 'charging_schedule') {
+      stateChange = false;
+    }
+
+    else if (shouldChargeLowPrice && this.lastChange.name !== 'charging_low_price') {
+      newChange = { name: 'charging_low_price', deviceName: this.getName(), timestamp: new Date() };
+    }
+    else if (shouldChargeLowPrice && newChange.name !== 'charging_low_price') {
+      stateChange = false;
+    }
+
+    else if (shouldChargeSun && this.lastChange.name !== 'charging_sun' && this.lastChange.name !== 'charging_min_duration') {
+      newChange = { name: 'charging_min_duration', deviceName: this.getName(), timestamp: new Date() };
+    }
+    else if (shouldChargeSun && this.lastChange.name === 'charging_sun') {
+      stateChange = false;
+    }
+    else if (shouldChargeSun && this.lastChange.name === 'charging_min_duration') {
+      newChange = { name: 'charging_sun', deviceName: this.getName(), timestamp: new Date() };
+    }
+
+    else if (!shouldChargeSchedule && !shouldChargeSun && !shouldChargeLowPrice && this.lastChange.name !== 'waiting') {
+      newChange = { name: 'waiting', deviceName: this.getName(), timestamp: new Date() };
+    }
+    else {
+      stateChange = false;
+    }
+    // ---
+
+    const chargingSwitch = this.lastChange.name.includes('charging') !== newChange.name.includes('charging');
     const minimumMillis = 1000 * 60 * this.getSetting('minimum_time');
-    if (new Date().getTime() - this.lastChange.timestamp.getTime() > minimumMillis) {
-      // this.log(new Date().getTime() - this.lastChange.timestamp.getTime(), minimumMillis);
-      // this.log(shouldChargeSchedule, shouldChargeSun, shouldChargeLowPrice, this.lastChange);
+    const minimumNoChargingSwitchTimeExpired = new Date().getTime() - this.lastChargingSwitch.getTime() > minimumMillis;
 
-      let putInDB = true;
+    if (stateChange && (!chargingSwitch || minimumNoChargingSwitchTimeExpired)) {
+      await this.setCapabilityValue('lock_mode.status', newChange.name);
+      await this.chargingCollection!.insertOne(newChange);
+      this.lastChange = newChange;
 
-      if (!shouldBeActive && this.lastChange.name !== 'not_active') {
-        this.lastChange = { name: 'not_active', deviceName: this.getName(), timestamp: new Date() };
-        await this.setCapabilityValue('lock_mode.status', 'not_active');
-      }
-      else if (!shouldBeActive && this.lastChange.name === 'not_active') {
-        putInDB = false;
-      }
-
-      else if (shouldChargeSchedule && this.lastChange.name !== 'charging_schedule') {
-        this.lastChange = { name: 'charging_schedule', deviceName: this.getName(), timestamp: new Date() };
-        await this.setCapabilityValue('lock_mode.status', 'charging_schedule');
-      }
-      else if (shouldChargeSchedule && this.lastChange.name === 'charging_schedule') {
-        putInDB = false;
-      }
-
-      else if (shouldChargeLowPrice && this.lastChange.name !== 'charging_low_price') {
-        this.lastChange = { name: 'charging_low_price', deviceName: this.getName(), timestamp: new Date() };
-        await this.setCapabilityValue('lock_mode.status', 'charging_low_price');
-      }
-      else if (shouldChargeLowPrice && this.lastChange.name !== 'charging_low_price') {
-        putInDB = false;
-      }
-
-      else if (shouldChargeSun && this.lastChange.name !== 'charging_sun' && this.lastChange.name !== 'charging_min_duration') {
-        this.lastChange = { name: 'charging_min_duration', deviceName: this.getName(), timestamp: new Date() };
-        await this.setCapabilityValue('lock_mode.status', 'charging_min_duration');
-      }
-      else if (shouldChargeSun && this.lastChange.name === 'charging_sun') {
-        putInDB = false;
-      }
-      else if (shouldChargeSun && this.lastChange.name === 'charging_min_duration') {
-        this.lastChange = { name: 'charging_sun', deviceName: this.getName(), timestamp: new Date() };
-        await this.setCapabilityValue('lock_mode.status', 'charging_sun');
-      }
-
-      else if (!shouldChargeSchedule && !shouldChargeSun && !shouldChargeLowPrice && this.lastChange.name !== 'waiting') {
-        this.lastChange = { name: 'waiting', deviceName: this.getName(), timestamp: new Date() };
-        await this.setCapabilityValue('lock_mode.status', 'waiting');
-      }
-      else {
-        putInDB = false;
-      }
-
-      if (putInDB) {
-        await this.chargingCollection!.insertOne({
-          name: await this.getCapabilityValue('lock_mode.status'),
-          deviceName: this.getName(),
-          timestamp: new Date(),
-        });
+      if (chargingSwitch) {
+        this.lastChargingSwitch = new Date();
       }
     }
 
-    // this.log(this.lastChange);
     return this.lastChange.name.includes('charging');
   }
 
