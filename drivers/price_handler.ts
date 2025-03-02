@@ -160,11 +160,21 @@ export class PriceHandler {
     try {
       const dom = new BeautifulDom(response.data);
       const priceElements = dom.getElementsByClassName('dynamic-prices-info__amount');
+
+      if (priceElements.length < 3) {
+        return 0.15;
+      }
+
       const prices: number[] = [];
       for (const priceElement of priceElements) {
         prices.push(parseNumber(priceElement.innerText));
       }
       const lowestEssentPrice = prices.sort()[0];
+
+      if (lowestEssentPrice === undefined) {
+        return 0.15;
+      }
+
       const lowestMarketPrice = this.pricesCache.sort((a, b) => a.price - b.price)[0].price;
       return lowestEssentPrice - lowestMarketPrice;
     }
