@@ -1,9 +1,9 @@
 import Homey from 'homey';
 import axios from 'axios';
 import { Collection, MongoClient } from 'mongodb';
+import BeautifulDom from 'beautiful-dom';
 // eslint-disable-next-line import/extensions,import/no-unresolved,node/no-missing-import
 import Scheduler from './scheduler';
-import BeautifulDom from 'beautiful-dom';
 
 type PriceData = {
   datum: Date;
@@ -36,13 +36,38 @@ export enum PriceHandlerMode {
   MaxFuture
 }
 
+type ControlData = {
+  priceThreshold: number;
+  active: boolean;
+  name: string;
+  essentDiff: number;
+}
+
 export class PriceHandler {
 
   private static marketDataURI = `https://jeroen.nl/api/dynamische-energieprijzen?period=vandaag&type=json&key=${Homey.env.JEROEN_API_KEY}`;
 
   public static async getData(): Promise<number[]> {
     const response = await axios.get<PriceData[]>(this.marketDataURI);
-    return response.data.map((x, index) => parseFloat(x.prijs_excl_belastingen.replace(',', '.')) * 1.21);
+    const data = response.data.map(
+      (x, index) => parseFloat(x.prijs_excl_belastingen.replace(',', '.')) * 1.21,
+    );
+    const hourlyData: number[] = [];
+    const numDataPointsPerHour = data.length / 24;
+
+    let curSum = 0;
+    let curNumDataPoints = 0;
+    for (const dataPoint of data) {
+      curSum += dataPoint;
+
+      if (++curNumDataPoints === numDataPointsPerHour) {
+        hourlyData.push(curSum / numDataPointsPerHour);
+        curSum = 0;
+        curNumDataPoints = 0;
+      }
+    }
+
+    return hourlyData;
   }
 
   public static async makeInstance(minHour: number, maxHour: number): Promise<PriceHandler> {
@@ -78,10 +103,13 @@ export class PriceHandler {
   private energyPricesCollection!: Collection<EnergyPrices>;
   private activeHours: HourRange;
   private pricesCache: HourPrice[];
+  private controlDataCollection!: Collection<ControlData>;
+  private diffWithEssentBackup: number;
 
   private constructor(minHour: number, maxHour: number) {
     this.activeHours = { min: minHour, max: maxHour };
     this.pricesCache = [];
+    this.diffWithEssentBackup = -1;
   }
 
   private async init() {
@@ -92,11 +120,16 @@ export class PriceHandler {
     await apiDataDB.command({ ping: 1 });
     this.energyPricesCollection = apiDataDB.collection<EnergyPrices>('EnergyPrices');
 
-    const updateCache = async () => {
+    const centralControlDB = client.db('CentralControl');
+    await centralControlDB.command({ ping: 1 });
+    this.controlDataCollection = centralControlDB.collection<ControlData>('ControlData');
+
+    const updateFromDB = async () => {
       this.pricesCache = await this.getPrices();
+      this.diffWithEssentBackup = (await this.controlDataCollection.findOne())!.essentDiff;
     };
-    await updateCache();
-    Scheduler.setIntervalAsync(updateCache, 1000 * 60 * 60);
+    await updateFromDB();
+    Scheduler.setIntervalAsync(updateFromDB, 1000 * 60 * 60);
   }
 
   private async getPrices(): Promise<HourPrice[]> {
@@ -147,10 +180,10 @@ export class PriceHandler {
       .sort((a, b) => a.hour - b.hour);
   }
 
-  public async getEssentMargin(): Promise<number> {
+  public async getDiffWithEssent(): Promise<number> {
     const response = await axios.get('https://www.essent.nl/dynamische-tarieven');
     if (response.status !== 200) {
-      return 0.15;
+      return this.diffWithEssentBackup;
     }
 
     const parseNumber = (text: string): number => {
@@ -162,7 +195,7 @@ export class PriceHandler {
       const priceElements = dom.getElementsByClassName('dynamic-prices-info__amount');
 
       if (priceElements.length < 3) {
-        return 0.15;
+        return this.diffWithEssentBackup;
       }
 
       const prices: number[] = [];
@@ -172,14 +205,15 @@ export class PriceHandler {
       const lowestEssentPrice = prices.sort()[0];
 
       if (lowestEssentPrice === undefined) {
-        return 0.15;
+        return this.diffWithEssentBackup;
       }
 
       const lowestMarketPrice = this.pricesCache.sort((a, b) => a.price - b.price)[0].price;
+
       return lowestEssentPrice - lowestMarketPrice;
     }
     catch (e) {
-      return 0.15;
+      return this.diffWithEssentBackup;
     }
   }
 

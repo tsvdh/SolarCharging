@@ -17,10 +17,11 @@ type ChargingState = {
   timestamp: Date;
 }
 
-type ChargingControlData = {
+type ControlData = {
   priceThreshold: number;
   active: boolean;
   name: string;
+  essentDiff: number;
 }
 
 module.exports = class DeviceCharger extends Homey.Device {
@@ -38,7 +39,7 @@ module.exports = class DeviceCharger extends Homey.Device {
   dbURI = `mongodb+srv://admin:${Homey.env.MONGO_PASSWORD}@cluster0.jwqp0hp.mongodb.net/?retryWrites=true&w=majority`
   solarPanelCollection: Collection<Measurement> | undefined;
   chargingCollection: Collection<ChargingState> | undefined;
-  controlDataCollection: Collection<ChargingControlData> | undefined;
+  controlDataCollection: Collection<ControlData> | undefined;
 
   measurementsCache: Measurement[] = [];
 
@@ -84,7 +85,7 @@ module.exports = class DeviceCharger extends Homey.Device {
 
     this.solarPanelCollection = measurementsDB.collection<Measurement>('SolarPanels');
     this.chargingCollection = loggingDB.collection<ChargingState>('Charging');
-    this.controlDataCollection = controlDB.collection<ChargingControlData>('ControlData');
+    this.controlDataCollection = controlDB.collection<ControlData>('ControlData');
 
     this.priceHandler = await PriceHandler.makeInstance(0, 23);
 
@@ -98,7 +99,7 @@ module.exports = class DeviceCharger extends Homey.Device {
       setable: false,
       values: [
         { id: 'charging_schedule', title: { en: 'Charging (schedule)', nl: 'Opladen (schema)' } },
-        { id: 'charging_min_duration', title: { en: 'Charging (mininum duration)', nl: 'Opladen (minimale duur)' } },
+        { id: 'charging_sun_min_duration', title: { en: 'Charging (sun, mininum duration)', nl: 'Opladen (zon, minimale duur)' } },
         { id: 'charging_sun', title: { en: 'Charging (sun)', nl: 'Opladen (zon)' } },
         { id: 'waiting', title: { en: 'Waiting', nl: 'Wachten' } },
         { id: 'charging_low_price', title: { en: 'Charging (low price)', nl: 'Opladen (lage prijs)' } },
@@ -178,7 +179,7 @@ module.exports = class DeviceCharger extends Homey.Device {
       ? this.getAverageValue(this.getSetting('average_duration')) > this.getSetting('power_threshold')
       : false;
 
-    const lowPrice = controlData.priceThreshold - await this.priceHandler.getEssentMargin();
+    const lowPrice = controlData.priceThreshold - await this.priceHandler.getDiffWithEssent();
     const lowHours = this.priceHandler.getBelowThreshold(lowPrice);
     const shouldChargeLowPrice = lowHours.map((x) => x.hour).includes(curHour);
 
@@ -203,17 +204,17 @@ module.exports = class DeviceCharger extends Homey.Device {
     else if (shouldChargeLowPrice && this.lastChange.name !== 'charging_low_price') {
       newChange = { name: 'charging_low_price', deviceName: this.getName(), timestamp: new Date() };
     }
-    else if (shouldChargeLowPrice && newChange.name !== 'charging_low_price') {
+    else if (shouldChargeLowPrice && this.lastChange.name === 'charging_low_price') {
       stateChange = false;
     }
 
-    else if (shouldChargeSun && this.lastChange.name !== 'charging_sun' && this.lastChange.name !== 'charging_min_duration') {
-      newChange = { name: 'charging_min_duration', deviceName: this.getName(), timestamp: new Date() };
+    else if (shouldChargeSun && this.lastChange.name !== 'charging_sun' && this.lastChange.name !== 'charging_sun_min_duration') {
+      newChange = { name: 'charging_sun_min_duration', deviceName: this.getName(), timestamp: new Date() };
     }
     else if (shouldChargeSun && this.lastChange.name === 'charging_sun') {
       stateChange = false;
     }
-    else if (shouldChargeSun && this.lastChange.name === 'charging_min_duration') {
+    else if (shouldChargeSun && this.lastChange.name === 'charging_sun_min_duration') {
       newChange = { name: 'charging_sun', deviceName: this.getName(), timestamp: new Date() };
     }
 

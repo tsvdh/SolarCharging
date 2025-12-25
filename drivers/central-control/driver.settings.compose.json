@@ -1,0 +1,10 @@
+[
+  {
+    "id": "essent_diff",
+    "type": "number",
+    "value": 0.15,
+    "label": {
+      "en": "Essent price difference with market (backup)"
+    }
+  }
+]

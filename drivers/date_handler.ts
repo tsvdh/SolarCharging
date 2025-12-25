@@ -8,7 +8,7 @@ export default class DateHandler {
     this.app = app;
   }
 
-  public static getDatePart(partName: string): string {
+  public static getDatePart(partName: string, date: Date = new Date()): string {
     const formatter = new Intl.DateTimeFormat([], {
       timeZone: this.app.homey.clock.getTimezone(),
       hour: '2-digit',
@@ -18,7 +18,7 @@ export default class DateHandler {
       hourCycle: 'h24',
     });
 
-    const timeParts = formatter.formatToParts(new Date());
+    const timeParts = formatter.formatToParts(date);
     const timePart = timeParts.find((part) => part.type === partName)!.value;
     if (partName !== 'hour') {
       return timePart;
@@ -31,8 +31,8 @@ export default class DateHandler {
     return hourAsNumber.toString(10);
   }
 
-  public static getDatePartAsNumber(partName: string): number {
-    return parseInt(this.getDatePart(partName), 10);
+  public static getDatePartAsNumber(partName: string, date: Date = new Date()): number {
+    return parseInt(this.getDatePart(partName, date), 10);
   }
 
 }

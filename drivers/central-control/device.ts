@@ -1,16 +1,17 @@
 import Homey from 'homey';
 import { Collection, MongoClient } from 'mongodb';
 
-type ChargingControlData = {
+type ControlData = {
   priceThreshold: number;
   active: boolean;
   name: string;
+  essentDiff: number;
 }
 
 module.exports = class Device extends Homey.Device {
 
   dbURI = `mongodb+srv://admin:${Homey.env.MONGO_PASSWORD}@cluster0.jwqp0hp.mongodb.net/?retryWrites=true&w=majority`
-  controlDataCollection: Collection<ChargingControlData> | undefined;
+  controlDataCollection: Collection<ControlData> | undefined;
 
   /**
    * onInit is called when the device is initialized.
@@ -22,10 +23,12 @@ module.exports = class Device extends Homey.Device {
     const controlDataDB = client.db('CentralControl');
     await controlDataDB.command({ ping: 1 });
 
-    this.controlDataCollection = controlDataDB.collection<ChargingControlData>('ControlData');
+    this.controlDataCollection = controlDataDB.collection<ControlData>('ControlData');
     const result = await this.controlDataCollection.findOne({ name: this.getData().id });
     if (!result) {
-      await this.controlDataCollection.insertOne({ priceThreshold: 0.3, active: true, name: this.getData().id });
+      await this.controlDataCollection.insertOne({
+        priceThreshold: 0.3, active: true, name: this.getData().id, essentDiff: 0.15,
+      });
     }
 
     this.log('Connected to DB');
@@ -73,6 +76,7 @@ module.exports = class Device extends Homey.Device {
     newSettings: { [key: string]: boolean | string | number | undefined | null };
     changedKeys: string[];
   }): Promise<string | void> {
+    await this.controlDataCollection!.updateOne({ name: this.getData().id }, { $set: { essentDiff: <number>newSettings['essent_diff'] } });
     this.log(`${this.getName()} ${changedKeys} settings were changed`);
   }
 
