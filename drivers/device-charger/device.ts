@@ -99,10 +99,13 @@ module.exports = class DeviceCharger extends Homey.Device {
       setable: false,
       values: [
         { id: 'charging_schedule', title: { en: 'Charging (schedule)', nl: 'Opladen (schema)' } },
-        { id: 'charging_sun_min_duration', title: { en: 'Charging (sun, mininum duration)', nl: 'Opladen (zon, minimale duur)' } },
         { id: 'charging_sun', title: { en: 'Charging (sun)', nl: 'Opladen (zon)' } },
-        { id: 'waiting', title: { en: 'Waiting', nl: 'Wachten' } },
         { id: 'charging_low_price', title: { en: 'Charging (low price)', nl: 'Opladen (lage prijs)' } },
+        { id: 'charging_min_duration', title: { en: 'Charging (mininum duration)', nl: 'Opladen (minimale duur)' } },
+
+        { id: 'waiting', title: { en: 'Waiting', nl: 'Wachten' } },
+        { id: 'waiting_min_duration', title: { en: 'Waiting (miminium duration)', nl: 'Wachten (minimale duur)' } },
+
         { id: 'not_active', title: { en: 'Not active', nl: 'Niet actief' } },
       ],
     });
@@ -208,14 +211,11 @@ module.exports = class DeviceCharger extends Homey.Device {
       stateChange = false;
     }
 
-    else if (shouldChargeSun && this.lastChange.name !== 'charging_sun' && this.lastChange.name !== 'charging_sun_min_duration') {
-      newChange = { name: 'charging_sun_min_duration', deviceName: this.getName(), timestamp: new Date() };
+    else if (shouldChargeSun && this.lastChange.name !== 'charging_sun') {
+      newChange = { name: 'charging_sun', deviceName: this.getName(), timestamp: new Date() };
     }
     else if (shouldChargeSun && this.lastChange.name === 'charging_sun') {
       stateChange = false;
-    }
-    else if (shouldChargeSun && this.lastChange.name === 'charging_sun_min_duration') {
-      newChange = { name: 'charging_sun', deviceName: this.getName(), timestamp: new Date() };
     }
 
     else if (!shouldChargeSchedule && !shouldChargeSun && !shouldChargeLowPrice && this.lastChange.name !== 'waiting') {
@@ -230,13 +230,19 @@ module.exports = class DeviceCharger extends Homey.Device {
     const minimumMillis = 1000 * 60 * this.getSetting('minimum_time');
     const minimumNoChargingSwitchTimeExpired = new Date().getTime() - this.lastChargingSwitch.getTime() > minimumMillis;
 
-    if (stateChange && (!chargingSwitch || minimumNoChargingSwitchTimeExpired)) {
-      await this.setCapabilityValue('lock_mode.status', newChange.name);
-      await this.chargingCollection!.insertOne(newChange);
-      this.lastChange = newChange;
+    if (stateChange) {
+      if (chargingSwitch && !minimumNoChargingSwitchTimeExpired) {
+        const minDurationType: string = newChange.name === 'waiting' ? 'charging_min_duration' : 'waiting_min_duration';
+        await this.setCapabilityValue('lock_mode.status', minDurationType);
+      }
+      else {
+        await this.setCapabilityValue('lock_mode.status', newChange.name);
+        await this.chargingCollection!.insertOne(newChange);
+        this.lastChange = newChange;
 
-      if (chargingSwitch) {
-        this.lastChargingSwitch = new Date();
+        if (chargingSwitch) {
+          this.lastChargingSwitch = new Date();
+        }
       }
     }
 

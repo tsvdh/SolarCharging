@@ -62,7 +62,7 @@ module.exports = class SolarCharging extends Homey.App {
       const curDay = DateHandler.getDatePartAsNumber('day');
 
       const result = await this.energyPricesCollection!.findOne();
-      const dbDay = DateHandler.getDatePartAsNumber('hour', result?.timestamp);
+      const dbDay = DateHandler.getDatePartAsNumber('day', result?.timestamp);
       const todayInDB = dbDay === curDay;
 
       if (result && !todayInDB) {
