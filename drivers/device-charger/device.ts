@@ -87,7 +87,7 @@ module.exports = class DeviceCharger extends Homey.Device {
     this.chargingCollection = loggingDB.collection<ChargingState>('Charging');
     this.controlDataCollection = controlDB.collection<ControlData>('ControlData');
 
-    this.priceHandler = await PriceHandler.makeInstance(0, 23);
+    this.priceHandler = new PriceHandler(0, 23);
 
     this.log('Connected to DB');
 
@@ -147,8 +147,8 @@ module.exports = class DeviceCharger extends Homey.Device {
 
     const shouldBeActive = controlData.active;
 
-    const curHour = DateHandler.getDatePartAsNumber('hour');
-    const curWeekDayName = DateHandler.getDatePart('weekday');
+    const curHour = DateHandler.getDatePartLocalAsNumber('hour');
+    const curWeekDayName = DateHandler.getDatePartLocal('weekday');
 
     let curWeekDay = -1;
     for (let i = 0; i < 7; i++) {

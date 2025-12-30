@@ -20,17 +20,17 @@ export default class Scheduler {
 
   static dayLastRun: number[] = [];
 
-  public static scheduleAsync(runHour: number, callback: () => Promise<void>): void {
+  private static scheduleAsync(runHour: number, callback: () => Promise<void>, datePartGetter: (partName: string) => number): void {
     const id = this.dayLastRun.length;
     this.dayLastRun.push(-1);
 
     const callbackRunner = async (id: number) => {
-      const today = DateHandler.getDatePartAsNumber('day');
+      const today = datePartGetter('day');
       if (this.dayLastRun[id] === today) {
         return;
       }
 
-      if (runHour === DateHandler.getDatePartAsNumber('hour')) {
+      if (runHour === datePartGetter('hour')) {
         await callback();
         this.dayLastRun[id] = today;
       }
@@ -39,8 +39,12 @@ export default class Scheduler {
     Scheduler.app.homey.setInterval(() => callbackRunner(id), 1000 * 60 * 5);
   }
 
-  public static schedule(runHour: number, callback: () => void): void {
-    this.scheduleAsync(runHour, async () => callback());
+  public static scheduleAsyncLocalTime(runHour: number, callback: () => Promise<void>): void {
+    this.scheduleAsync(runHour, callback, DateHandler.getDatePartLocalAsNumber);
+  }
+
+  public static scheduleAsyncUTC(runHour: number, callback: () => Promise<void>): void {
+    this.scheduleAsync(runHour, callback, DateHandler.getDatePartUTCAsNumber);
   }
 
 }

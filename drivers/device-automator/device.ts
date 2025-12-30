@@ -12,11 +12,11 @@ module.exports = class Device extends Homey.Device {
    * onInit is called when the device is initialized.
    */
   async onInit() {
-    this.priceHandler = await PriceHandler.makeInstance(0, 23);
+    this.priceHandler = new PriceHandler(0, 23);
     this.log('Connected to DB');
 
     const shouldBeOnCalculator = async () => {
-      const curHour = DateHandler.getDatePartAsNumber('hour');
+      const curHour = DateHandler.getDatePartLocalAsNumber('hour');
 
       // TODO: replace placeholder temporary code
       const lowestHours = this.priceHandler.getXLowest(18);

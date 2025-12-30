@@ -4,9 +4,12 @@ import { Collection, MongoClient } from 'mongodb';
 import BeautifulDom from 'beautiful-dom';
 // eslint-disable-next-line import/extensions,import/no-unresolved,node/no-missing-import
 import Scheduler from './scheduler';
+// eslint-disable-next-line import/extensions,import/no-unresolved,node/no-missing-import
+import DateHandler from './date_handler';
 
-type PriceData = {
-  datum: Date;
+type ApiPriceData = {
+  // eslint-disable-next-line camelcase
+  datum_nl: string;
   // eslint-disable-next-line camelcase
   prijs_excl_belastingen: string;
 }
@@ -16,16 +19,16 @@ type HourRange = {
   max: number;
 }
 
-export type HourPrice = {
+export type HourPriceData = {
   hour: number;
   price: number;
 }
 
-function HourPrice(hour: number, price: number): HourPrice {
+function HourPriceData(hour: number, price: number): HourPriceData {
   return { hour, price };
 }
 
-type EnergyPrices = {
+type DbPriceData = {
   prices: number[];
   timestamp: Date;
 }
@@ -45,11 +48,90 @@ type ControlData = {
 
 export class PriceHandler {
 
-  private static marketDataURI = `https://jeroen.nl/api/dynamische-energieprijzen?period=vandaag&type=json&key=${Homey.env.JEROEN_API_KEY}`;
+  private static app: Homey.App;
+  private static marketDataURI = `https://jeroen.nl/api/dynamische-energieprijzen/v2/?period=__day__&type=json&key=${Homey.env.JEROEN_API_KEY}`;
+  private static dbURI = `mongodb+srv://admin:${Homey.env.MONGO_PASSWORD}@cluster0.jwqp0hp.mongodb.net/?retryWrites=true&w=majority`;
+  private static energyPricesCollection: Collection<DbPriceData>;
+  private static controlDataCollection: Collection<ControlData>;
+  private static fullPricesCache: HourPriceData[];
+  private static diffWithEssentBackup: number;
 
-  public static async getData(): Promise<number[]> {
-    const response = await axios.get<PriceData[]>(this.marketDataURI);
-    const data = response.data.map(
+  private static getMarketDataURI(day: string): string {
+    return this.marketDataURI.replace('__day__', day);
+  }
+
+  public static async init(app: Homey.App) {
+    this.app = app;
+
+    const client = new MongoClient(this.dbURI);
+    await client.connect();
+
+    const apiDataDB = client.db('ApiData');
+    await apiDataDB.command({ ping: 1 });
+    this.energyPricesCollection = apiDataDB.collection<DbPriceData>('EnergyPrices');
+
+    const centralControlDB = client.db('CentralControl');
+    await centralControlDB.command({ ping: 1 });
+    this.controlDataCollection = centralControlDB.collection<ControlData>('ControlData');
+
+    const energyPriceUpdater = async () => {
+      const result = await this.energyPricesCollection!.findOne();
+      const today = DateHandler.getDatePartLocalAsNumber('day');
+      const dbDay = DateHandler.getDatePartLocalAsNumber('day', result?.timestamp);
+      const todayInDB = dbDay === today;
+
+      this.app.log(today, dbDay, result);
+
+      if (result) {
+        if (todayInDB) {
+          this.fullPricesCache = PriceHandler.transformDbPriceDataToHourPriceData(result.prices);
+          return;
+        }
+        await this.energyPricesCollection!.deleteOne();
+      }
+
+      const todayResponse = await axios.get<ApiPriceData[]>(this.getMarketDataURI('vandaag'));
+      const tomorrowResponse = await axios.get<ApiPriceData[]>(this.getMarketDataURI('morgen'));
+      const todayResponseDay = DateHandler.getDatePartLocalAsNumber('day', new Date(todayResponse.data[0].datum_nl));
+
+      this.app.log(todayResponseDay, tomorrowResponse.data.length > 0);
+      if (tomorrowResponse.data.length > 0) {
+        this.app.log(DateHandler.getDatePartLocalAsNumber('day', new Date(tomorrowResponse.data[0].datum_nl)));
+      }
+
+      const processApiData = async (apiData: ApiPriceData[]) => {
+        const prices = PriceHandler.transformApiPriceDataToDbPriceData(apiData);
+        await this.energyPricesCollection!.insertOne({ prices, timestamp: new Date() });
+        this.fullPricesCache = PriceHandler.transformDbPriceDataToHourPriceData(prices);
+      };
+
+      if (todayResponseDay === today) {
+        await processApiData(todayResponse.data);
+        return;
+      }
+      if (tomorrowResponse.data.length > 0) {
+        const tomorrowResponseDay = DateHandler.getDatePartLocalAsNumber('day', new Date(tomorrowResponse.data[0].datum_nl));
+
+        if (tomorrowResponseDay === today) {
+          await processApiData(tomorrowResponse.data);
+          return;
+        }
+      }
+
+      this.app.error('Failed to get price data from Api');
+    };
+    await energyPriceUpdater();
+    Scheduler.scheduleAsyncLocalTime(0, energyPriceUpdater);
+
+    const updateFromDB = async () => {
+      this.diffWithEssentBackup = (await this.controlDataCollection.findOne())!.essentDiff;
+    };
+    await updateFromDB();
+    Scheduler.setIntervalAsync(updateFromDB, 1000 * 60 * 60);
+  }
+
+  private static transformApiPriceDataToDbPriceData(priceData: ApiPriceData[]): number[] {
+    const data = priceData.map(
       (x, index) => parseFloat(x.prijs_excl_belastingen.replace(',', '.')) * 1.21,
     );
     const hourlyData: number[] = [];
@@ -70,13 +152,11 @@ export class PriceHandler {
     return hourlyData;
   }
 
-  public static async makeInstance(minHour: number, maxHour: number): Promise<PriceHandler> {
-    const instance = new PriceHandler(minHour, maxHour);
-    await instance.init();
-    return instance;
+  private static transformDbPriceDataToHourPriceData(priceData: number[]): HourPriceData[] {
+    return priceData.map((x, i) => { return HourPriceData(i, x); });
   }
 
-  public static hoursToString(hourPrices: HourPrice[]): string {
+  public static hoursToString(hourPrices: HourPriceData[]): string {
     const ranges: HourRange[] = [];
     for (const hourPrice of hourPrices) {
       const thisHourRange: HourRange = { min: hourPrice.hour, max: hourPrice.hour };
@@ -99,82 +179,52 @@ export class PriceHandler {
     return result;
   }
 
-  private dbURI = `mongodb+srv://admin:${Homey.env.MONGO_PASSWORD}@cluster0.jwqp0hp.mongodb.net/?retryWrites=true&w=majority`;
-  private energyPricesCollection!: Collection<EnergyPrices>;
   private activeHours: HourRange;
-  private pricesCache: HourPrice[];
-  private controlDataCollection!: Collection<ControlData>;
-  private diffWithEssentBackup: number;
 
-  private constructor(minHour: number, maxHour: number) {
+  public constructor(minHour: number, maxHour: number) {
     this.activeHours = { min: minHour, max: maxHour };
-    this.pricesCache = [];
-    this.diffWithEssentBackup = -1;
   }
 
-  private async init() {
-    const client = new MongoClient(this.dbURI);
-    await client.connect();
-
-    const apiDataDB = client.db('ApiData');
-    await apiDataDB.command({ ping: 1 });
-    this.energyPricesCollection = apiDataDB.collection<EnergyPrices>('EnergyPrices');
-
-    const centralControlDB = client.db('CentralControl');
-    await centralControlDB.command({ ping: 1 });
-    this.controlDataCollection = centralControlDB.collection<ControlData>('ControlData');
-
-    const updateFromDB = async () => {
-      this.pricesCache = await this.getPrices();
-      this.diffWithEssentBackup = (await this.controlDataCollection.findOne())!.essentDiff;
-    };
-    await updateFromDB();
-    Scheduler.setIntervalAsync(updateFromDB, 1000 * 60 * 60);
+  private getPrices(): HourPriceData[] {
+    return PriceHandler.fullPricesCache.slice(this.activeHours.min, this.activeHours.max + 1);
   }
 
-  private async getPrices(): Promise<HourPrice[]> {
-    const { prices } = (await this.energyPricesCollection.findOne())!;
-    return prices
-      .map((x, i): HourPrice => HourPrice(i, x))
-      .slice(this.activeHours.min, this.activeHours.max + 1);
-  }
-
-  public getAverageOf(prices: HourPrice[]): number {
-    return prices.reduce((acc, cur) => HourPrice(-1, acc.price + cur.price)).price / prices.length;
+  public getAverageOf(prices: HourPriceData[]): number {
+    return prices.reduce((acc, cur) => HourPriceData(-1, acc.price + cur.price)).price / prices.length;
   }
 
   public getAverage(): number {
-    return this.getAverageOf(this.pricesCache);
+    return this.getAverageOf(this.getPrices());
   }
 
-  public getAboveAverage(): HourPrice[] {
+  public getAboveAverage(): HourPriceData[] {
     return this.getOffsetAboveAverage(0);
   }
 
-  public getBelowAverage(): HourPrice[] {
+  public getBelowAverage(): HourPriceData[] {
     return this.getOffsetBelowAverage(0);
   }
 
-  public getOffsetAboveAverage(offset: number): HourPrice[] {
+  public getOffsetAboveAverage(offset: number): HourPriceData[] {
     const average = this.getAverage();
-    return this.pricesCache.filter((x) => x.price > average + offset);
+    return this.getPrices().filter((x) => x.price > average + offset);
   }
 
-  public getOffsetBelowAverage(offset: number): HourPrice[] {
+  public getOffsetBelowAverage(offset: number): HourPriceData[] {
     const average = this.getAverage();
-    return this.pricesCache.filter((x) => x.price < average - offset);
+    return this.getPrices().filter((x) => x.price < average - offset);
   }
 
-  public getBelowThreshold(threshold: number): HourPrice[] {
-    return this.pricesCache.filter((x) => x.price <= threshold);
+  public getBelowThreshold(threshold: number): HourPriceData[] {
+    return this.getPrices().filter((x) => x.price <= threshold);
   }
 
-  public getAboveThreshold(threshold: number): HourPrice[] {
-    return this.pricesCache.filter((x) => x.price >= threshold);
+  public getAboveThreshold(threshold: number): HourPriceData[] {
+    return this.getPrices().filter((x) => x.price >= threshold);
   }
 
-  public getXLowest(amount: number) : HourPrice[] {
-    return this.pricesCache
+  public getXLowest(amount: number) : HourPriceData[] {
+    return this.getPrices()
       .sort((a, b) => a.price - b.price)
       .slice(0, amount)
       .sort((a, b) => a.hour - b.hour);
@@ -183,7 +233,7 @@ export class PriceHandler {
   public async getDiffWithEssent(): Promise<number> {
     const response = await axios.get('https://www.essent.nl/dynamische-tarieven');
     if (response.status !== 200) {
-      return this.diffWithEssentBackup;
+      return PriceHandler.diffWithEssentBackup;
     }
 
     const parseNumber = (text: string): number => {
@@ -195,7 +245,7 @@ export class PriceHandler {
       const priceElements = dom.getElementsByClassName('dynamic-prices-info__amount');
 
       if (priceElements.length < 3) {
-        return this.diffWithEssentBackup;
+        return PriceHandler.diffWithEssentBackup;
       }
 
       const prices: number[] = [];
@@ -205,15 +255,15 @@ export class PriceHandler {
       const lowestEssentPrice = prices.sort()[0];
 
       if (lowestEssentPrice === undefined) {
-        return this.diffWithEssentBackup;
+        return PriceHandler.diffWithEssentBackup;
       }
 
-      const lowestMarketPrice = this.pricesCache.sort((a, b) => a.price - b.price)[0].price;
+      const lowestMarketPrice = this.getPrices().sort((a, b) => a.price - b.price)[0].price;
 
       return lowestEssentPrice - lowestMarketPrice;
     }
     catch (e) {
-      return this.diffWithEssentBackup;
+      return PriceHandler.diffWithEssentBackup;
     }
   }
 
