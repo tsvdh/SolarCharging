@@ -18,7 +18,7 @@ module.exports = class Device extends Homey.Device {
     const showLowPrices = async () => {
       const priceHandler = new PriceHandler(7, 23);
       const lowHours = priceHandler.getBelowAverage();
-      const averagePrice = priceHandler.getAverage() + await priceHandler.getDiffWithEssent();
+      const averagePrice = priceHandler.getAverage();
 
       const curLang = this.homey.i18n.getLanguage();
       let text: string;
@@ -37,7 +37,7 @@ module.exports = class Device extends Homey.Device {
       await this.setCapabilityValue('hour_shower', message);
     };
     await showLowPrices();
-    Scheduler.scheduleAsyncUTC(0, showLowPrices);
+    Scheduler.scheduleAsyncLocalTime(0, showLowPrices);
 
     this.log(`${this.getName()} has been initialized`);
   }

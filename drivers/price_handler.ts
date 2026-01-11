@@ -31,6 +31,7 @@ function HourPriceData(hour: number, price: number): HourPriceData {
 type DbPriceData = {
   prices: number[];
   timestamp: Date;
+  insertionTimestamp: Date;
 }
 
 export enum PriceHandlerMode {
@@ -53,7 +54,7 @@ export class PriceHandler {
   private static dbURI = `mongodb+srv://admin:${Homey.env.MONGO_PASSWORD}@cluster0.jwqp0hp.mongodb.net/?retryWrites=true&w=majority`;
   private static energyPricesCollection: Collection<DbPriceData>;
   private static controlDataCollection: Collection<ControlData>;
-  private static fullPricesCache: HourPriceData[];
+  private static fullPricesCache: Map<number, HourPriceData[]>;
   private static diffWithEssentBackup: number;
 
   private static getMarketDataURI(day: string): string {
@@ -74,65 +75,88 @@ export class PriceHandler {
     await centralControlDB.command({ ping: 1 });
     this.controlDataCollection = centralControlDB.collection<ControlData>('ControlData');
 
-    const energyPriceUpdater = async () => {
-      const result = await this.energyPricesCollection!.findOne();
-      const today = DateHandler.getDatePartLocalAsNumber('day');
-      const dbDay = DateHandler.getDatePartLocalAsNumber('day', result?.timestamp);
-      const todayInDB = dbDay === today;
-
-      this.app.log(today, dbDay, result);
-
-      if (result) {
-        if (todayInDB) {
-          this.fullPricesCache = PriceHandler.transformDbPriceDataToHourPriceData(result.prices);
-          return;
-        }
-        await this.energyPricesCollection!.deleteOne();
-      }
-
-      const todayResponse = await axios.get<ApiPriceData[]>(this.getMarketDataURI('vandaag'));
-      const tomorrowResponse = await axios.get<ApiPriceData[]>(this.getMarketDataURI('morgen'));
-      const todayResponseDay = DateHandler.getDatePartLocalAsNumber('day', new Date(todayResponse.data[0].datum_nl));
-
-      this.app.log(todayResponseDay, tomorrowResponse.data.length > 0);
-      if (tomorrowResponse.data.length > 0) {
-        this.app.log(DateHandler.getDatePartLocalAsNumber('day', new Date(tomorrowResponse.data[0].datum_nl)));
-      }
-
-      const processApiData = async (apiData: ApiPriceData[]) => {
-        const prices = PriceHandler.transformApiPriceDataToDbPriceData(apiData);
-        await this.energyPricesCollection!.insertOne({ prices, timestamp: new Date() });
-        this.fullPricesCache = PriceHandler.transformDbPriceDataToHourPriceData(prices);
-      };
-
-      if (todayResponseDay === today) {
-        await processApiData(todayResponse.data);
-        return;
-      }
-      if (tomorrowResponse.data.length > 0) {
-        const tomorrowResponseDay = DateHandler.getDatePartLocalAsNumber('day', new Date(tomorrowResponse.data[0].datum_nl));
-
-        if (tomorrowResponseDay === today) {
-          await processApiData(tomorrowResponse.data);
-          return;
-        }
-      }
-
-      this.app.error('Failed to get price data from Api');
-    };
-    await energyPriceUpdater();
-    Scheduler.scheduleAsyncLocalTime(0, energyPriceUpdater);
+    this.fullPricesCache = new Map();
 
     const updateFromDB = async () => {
       this.diffWithEssentBackup = (await this.controlDataCollection.findOne())!.essentDiff;
     };
+
+    const startupUpdater = async () => {
+      const today = DateHandler.getToday();
+      const cursor = this.energyPricesCollection!.find().sort({ timestamp: -1 });
+      const latestResult = await cursor.next();
+      if (latestResult) {
+        if (DateHandler.isToday(latestResult.timestamp)) {
+          this.app.log('latest db price result is today');
+          this.fullPricesCache.set(today, this.transformDbPriceDataToHourPriceData(latestResult.prices));
+          return;
+        }
+        const secondLatestResult = await cursor.next();
+        if (secondLatestResult) {
+          if (DateHandler.isToday(secondLatestResult.timestamp)) {
+            this.app.log('second latest db price result is today');
+            this.fullPricesCache.set(today, this.transformDbPriceDataToHourPriceData(secondLatestResult.prices));
+            return;
+          }
+        }
+      }
+
+      this.app.log('fetching today prices from api and adding to db');
+
+      const todayApiResponse = await axios.get<ApiPriceData[]>(this.getMarketDataURI('vandaag'));
+      const todayDbPrices = await this.transformApiPriceDataToDbPriceData(todayApiResponse.data);
+      const todayApiDate = new Date(todayApiResponse.data[0].datum_nl);
+      await this.energyPricesCollection!.insertOne({ prices: todayDbPrices, insertionTimestamp: new Date(), timestamp: todayApiDate });
+      this.fullPricesCache.set(today, this.transformDbPriceDataToHourPriceData(todayDbPrices));
+    };
+
+    const dailyUpdater = async () => {
+      const today = DateHandler.getToday();
+      const tomorrow = DateHandler.getTomorrow();
+
+      const currentHour = DateHandler.getDatePartLocalAsNumber('hour');
+      if (currentHour < 18) {
+        return;
+      }
+      if (this.fullPricesCache.has(tomorrow)) {
+        return;
+      }
+
+      this.app.log('getting tomorrow prices');
+
+      const todayPrices = this.fullPricesCache.get(today)!;
+      this.fullPricesCache.clear();
+      this.fullPricesCache.set(today, todayPrices);
+
+      const result = await this.energyPricesCollection!.find().sort({ timestamp: -1 }).next();
+      if (result) {
+        if (DateHandler.isTomorrow(result.timestamp)) {
+          this.app.log('tomorrow prices found in db');
+          this.fullPricesCache.set(tomorrow, this.transformDbPriceDataToHourPriceData(result.prices));
+          return;
+        }
+      }
+
+      this.app.log('fetching tomorrow prices from api and adding to db');
+
+      const tomorrowApiResponse = await axios.get<ApiPriceData[]>(this.getMarketDataURI('morgen'));
+      const tomorrowDbPrices = await this.transformApiPriceDataToDbPriceData(tomorrowApiResponse.data);
+      const tomorrowApiDate = new Date(tomorrowApiResponse.data[0].datum_nl);
+      await this.energyPricesCollection!.insertOne({ prices: tomorrowDbPrices, insertionTimestamp: new Date(), timestamp: tomorrowApiDate });
+      this.fullPricesCache.set(tomorrow, this.transformDbPriceDataToHourPriceData(tomorrowDbPrices));
+    };
+
     await updateFromDB();
+    await startupUpdater();
+    await dailyUpdater();
+    Scheduler.setIntervalAsync(dailyUpdater, 1000 * 60 * 5);
     Scheduler.setIntervalAsync(updateFromDB, 1000 * 60 * 60);
   }
 
-  private static transformApiPriceDataToDbPriceData(priceData: ApiPriceData[]): number[] {
+  private static async transformApiPriceDataToDbPriceData(priceData: ApiPriceData[]): Promise<number[]> {
+    const diffWithEssent = await this.getDiffWithEssent();
     const data = priceData.map(
-      (x, index) => parseFloat(x.prijs_excl_belastingen.replace(',', '.')) * 1.21,
+      (x, index) => parseFloat(x.prijs_excl_belastingen.replace(',', '.')) * 1.21 + diffWithEssent,
     );
     const hourlyData: number[] = [];
     const numDataPointsPerHour = data.length / 24;
@@ -179,14 +203,66 @@ export class PriceHandler {
     return result;
   }
 
+  private static async getDiffWithEssent(): Promise<number> {
+    const response = await axios.get('https://www.essent.nl/dynamische-tarieven');
+    if (response.status !== 200) {
+      return PriceHandler.diffWithEssentBackup;
+    }
+
+    const parseNumber = (text: string): number => {
+      return parseFloat(text.slice(7).replace(',', '.'));
+    };
+
+    try {
+      const dom = new BeautifulDom(response.data);
+      const priceElements = dom.getElementsByClassName('dynamic-prices-info__amount');
+
+      if (priceElements.length < 3) {
+        return PriceHandler.diffWithEssentBackup;
+      }
+
+      const prices: number[] = [];
+      for (const priceElement of priceElements) {
+        prices.push(parseNumber(priceElement.innerText));
+      }
+      const lowestEssentPrice = prices.sort()[0];
+
+      if (lowestEssentPrice === undefined) {
+        return PriceHandler.diffWithEssentBackup;
+      }
+
+      const lowestMarketPrice = PriceHandler.getPrices().sort((a, b) => a.price - b.price)[0].price;
+
+      return lowestEssentPrice - lowestMarketPrice;
+    }
+    catch (e) {
+      return PriceHandler.diffWithEssentBackup;
+    }
+  }
+
+  private static getPrices(): HourPriceData[] {
+    const prices = PriceHandler.fullPricesCache.get(DateHandler.getToday());
+    if (prices === undefined) {
+      throw new Error(`Prices for today not in cache (today: ${DateHandler.getToday()}, in cache: ${Array.from(PriceHandler.fullPricesCache.keys())}`);
+    }
+    return prices;
+  }
+
   private activeHours: HourRange;
 
   public constructor(minHour: number, maxHour: number) {
     this.activeHours = { min: minHour, max: maxHour };
   }
 
-  private getPrices(): HourPriceData[] {
-    return PriceHandler.fullPricesCache.slice(this.activeHours.min, this.activeHours.max + 1);
+  public getPrices(): HourPriceData[] {
+    return PriceHandler.getPrices().slice(this.activeHours.min, this.activeHours.max + 1);
+  }
+
+  public getPrice(hour: number): number | undefined {
+    if (hour < this.activeHours.min || hour > this.activeHours.max) {
+      return undefined;
+    }
+    return this.getPrices()[hour].price;
   }
 
   public getAverageOf(prices: HourPriceData[]): number {
@@ -228,43 +304,6 @@ export class PriceHandler {
       .sort((a, b) => a.price - b.price)
       .slice(0, amount)
       .sort((a, b) => a.hour - b.hour);
-  }
-
-  public async getDiffWithEssent(): Promise<number> {
-    const response = await axios.get('https://www.essent.nl/dynamische-tarieven');
-    if (response.status !== 200) {
-      return PriceHandler.diffWithEssentBackup;
-    }
-
-    const parseNumber = (text: string): number => {
-      return parseFloat(text.slice(7).replace(',', '.'));
-    };
-
-    try {
-      const dom = new BeautifulDom(response.data);
-      const priceElements = dom.getElementsByClassName('dynamic-prices-info__amount');
-
-      if (priceElements.length < 3) {
-        return PriceHandler.diffWithEssentBackup;
-      }
-
-      const prices: number[] = [];
-      for (const priceElement of priceElements) {
-        prices.push(parseNumber(priceElement.innerText));
-      }
-      const lowestEssentPrice = prices.sort()[0];
-
-      if (lowestEssentPrice === undefined) {
-        return PriceHandler.diffWithEssentBackup;
-      }
-
-      const lowestMarketPrice = this.getPrices().sort((a, b) => a.price - b.price)[0].price;
-
-      return lowestEssentPrice - lowestMarketPrice;
-    }
-    catch (e) {
-      return PriceHandler.diffWithEssentBackup;
-    }
   }
 
 }

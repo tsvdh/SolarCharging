@@ -10,11 +10,12 @@ export default class DateHandler {
 
   private static getDatePart(partName: string, date: Date, timeZone: string): string {
     const formatter = new Intl.DateTimeFormat([], {
-      timeZone: this.app.homey.clock.getTimezone(),
+      timeZone,
       hour: '2-digit',
       hour12: false,
       weekday: 'long',
       day: '2-digit',
+      month: '2-digit',
       hourCycle: 'h24',
     });
 
@@ -49,6 +50,23 @@ export default class DateHandler {
 
   public static getDatePartUTCAsNumber(partName: string, date: Date = new Date()): number {
     return this.getDatePartAsNumber(partName, date, 'UTC');
+  }
+
+  public static isToday(date: Date): boolean {
+    return this.getDatePartLocalAsNumber('day') === this.getDatePartLocalAsNumber('day', date)
+      && this.getDatePartLocalAsNumber('month') === this.getDatePartLocalAsNumber('month', date);
+  }
+
+  public static isTomorrow(date: Date): boolean {
+    return this.isToday(new Date(date.getTime() - 24 * 60 * 60 * 1000));
+  }
+
+  public static getToday(): number {
+    return this.getDatePartLocalAsNumber('day');
+  }
+
+  public static getTomorrow(): number {
+    return this.getDatePartLocalAsNumber('day', new Date(new Date().getTime() + 24 * 60 * 60 * 1000));
   }
 
 }

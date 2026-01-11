@@ -36,15 +36,15 @@ export default class Scheduler {
       }
     };
 
-    Scheduler.app.homey.setInterval(() => callbackRunner(id), 1000 * 60 * 5);
+    Scheduler.app.homey.setInterval(async () => callbackRunner(id), 1000 * 60 * 5);
   }
 
   public static scheduleAsyncLocalTime(runHour: number, callback: () => Promise<void>): void {
-    this.scheduleAsync(runHour, callback, DateHandler.getDatePartLocalAsNumber);
+    this.scheduleAsync(runHour, callback, DateHandler.getDatePartLocalAsNumber.bind(DateHandler));
   }
 
   public static scheduleAsyncUTC(runHour: number, callback: () => Promise<void>): void {
-    this.scheduleAsync(runHour, callback, DateHandler.getDatePartUTCAsNumber);
+    this.scheduleAsync(runHour, callback, DateHandler.getDatePartUTCAsNumber.bind(DateHandler));
   }
 
 }

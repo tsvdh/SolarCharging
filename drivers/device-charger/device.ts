@@ -4,6 +4,8 @@ import { Collection, MongoClient } from 'mongodb';
 import { PriceHandler } from '../price_handler';
 // eslint-disable-next-line import/extensions,import/no-unresolved,node/no-missing-import
 import DateHandler from '../date_handler';
+// eslint-disable-next-line import/extensions,import/no-unresolved,node/no-missing-import
+import Scheduler from '../scheduler';
 
 type Measurement = {
   value: number;
@@ -11,10 +13,22 @@ type Measurement = {
   timestamp: Date;
 }
 
+type DecisionData = {
+  maximumPrice: number;
+  currentPrice: number;
+  minimumPower: number;
+  currentPower: number;
+  scheduleActive: boolean;
+  currentWeekTime: number[];
+  wantedWeekTime: number[];
+  shouldBeActive: boolean;
+}
+
 type ChargingState = {
   name: string;
   deviceName: string;
   timestamp: Date;
+  decisionData: DecisionData | null;
 }
 
 type ControlData = {
@@ -43,7 +57,13 @@ module.exports = class DeviceCharger extends Homey.Device {
 
   measurementsCache: Measurement[] = [];
 
-  lastChange: ChargingState = { name: 'not_set', deviceName: this.getName(), timestamp: new Date(0, 0) }
+  lastChange: ChargingState = {
+    name: 'not_set',
+    deviceName: this.getName(),
+    timestamp: new Date(0),
+    decisionData: null,
+  };
+
   lastChargingSwitch: Date = new Date(0);
 
   priceHandler!: PriceHandler;
@@ -53,8 +73,11 @@ module.exports = class DeviceCharger extends Homey.Device {
     return documents.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
   }
 
-  getAverageValue(duration: number) : number {
+  getAverageMeasurementValue(duration: number) : number {
     duration = Math.min(duration, this.measurementsCache.length);
+    if (duration === 0) {
+      return -1;
+    }
 
     const wantedValues = this.measurementsCache.slice(0, duration);
 
@@ -128,12 +151,12 @@ module.exports = class DeviceCharger extends Homey.Device {
     const updater = async () => {
       this.measurementsCache = await this.getDBValues();
       if (this.measurementsCache.length > 0) {
-        await this.setCapabilityValue('measure_luminance', this.getAverageValue(this.getSetting('average_duration')));
+        await this.setCapabilityValue('measure_luminance', this.getAverageMeasurementValue(this.getSetting('average_duration')));
       }
     };
 
     await updater();
-    this.homey.setInterval(updater, 1000 * 60);
+    Scheduler.setIntervalAsync(updater, 1000 * 60);
 
     this.log(`${this.getName()} has been initialized`);
   }
@@ -158,13 +181,14 @@ module.exports = class DeviceCharger extends Homey.Device {
       }
     }
     if (curWeekDay === -1) {
-      this.error(`Unknown weekday: ${curWeekDayName}`);
+      throw new Error(`Unknown weekday: ${curWeekDayName}`);
     }
 
     const curHours = curHour + 24 * curWeekDay;
 
+    const wantedHour = this.getSetting('charged_hour');
     const wantedDay = parseInt(this.getSetting('charged_day'), 10);
-    let wantedHours: number = this.getSetting('charged_hour') + 24 * wantedDay;
+    let wantedHours: number = wantedHour + 24 * wantedDay;
 
     if (wantedHours < curHours) {
       wantedHours += 24 * 7;
@@ -176,50 +200,68 @@ module.exports = class DeviceCharger extends Homey.Device {
     }
 
     const curTimeWithinScheduleTime = wantedHours - curHours <= this.getSetting('charging_time');
-    const shouldChargeSchedule = (<boolean> this.getSetting('schedule_active')) && curTimeWithinScheduleTime;
+    const scheduleActive = (<boolean> this.getSetting('schedule_active'));
+    const shouldChargeSchedule = scheduleActive && curTimeWithinScheduleTime;
 
-    const shouldChargeSun: boolean = this.measurementsCache.length > 0
-      ? this.getAverageValue(this.getSetting('average_duration')) > this.getSetting('power_threshold')
-      : false;
+    const currentPower = this.getAverageMeasurementValue(this.getSetting('average_duration'));
+    const minimumPower = this.getSetting('power_threshold');
+    const shouldChargeSun: boolean = currentPower > minimumPower;
 
-    const lowPrice = controlData.priceThreshold - await this.priceHandler.getDiffWithEssent();
-    const lowHours = this.priceHandler.getBelowThreshold(lowPrice);
-    const shouldChargeLowPrice = lowHours.map((x) => x.hour).includes(curHour);
+    const maximumPrice = controlData.priceThreshold;
+    const currentPrice = this.priceHandler.getPrice(curHour)!;
+    const shouldChargeLowPrice = currentPrice <= maximumPrice;
 
     // --- decision tree ---
     let stateChange = true;
     let newChange = this.lastChange;
 
+    const decisionData: DecisionData = {
+      maximumPrice,
+      currentPrice,
+      minimumPower,
+      currentPower,
+      scheduleActive,
+      currentWeekTime: [curHour, curWeekDay, curHours],
+      wantedWeekTime: [wantedHour, wantedDay, wantedHours],
+      shouldBeActive,
+    };
+
+    const tempChange = {
+      deviceName: this.getName(),
+      timestamp: new Date(),
+      decisionData,
+    };
+
     if (!shouldBeActive && this.lastChange.name !== 'not_active') {
-      newChange = { name: 'not_active', deviceName: this.getName(), timestamp: new Date() };
+      newChange = Object.assign(tempChange, { name: 'not_active' });
     }
     else if (!shouldBeActive && this.lastChange.name === 'not_active') {
       stateChange = false;
     }
 
     else if (shouldChargeSchedule && this.lastChange.name !== 'charging_schedule') {
-      newChange = { name: 'charging_schedule', deviceName: this.getName(), timestamp: new Date() };
+      newChange = Object.assign(tempChange, { name: 'charging_schedule' });
     }
     else if (shouldChargeSchedule && this.lastChange.name === 'charging_schedule') {
       stateChange = false;
     }
 
     else if (shouldChargeLowPrice && this.lastChange.name !== 'charging_low_price') {
-      newChange = { name: 'charging_low_price', deviceName: this.getName(), timestamp: new Date() };
+      newChange = Object.assign(tempChange, { name: 'charging_low_price' });
     }
     else if (shouldChargeLowPrice && this.lastChange.name === 'charging_low_price') {
       stateChange = false;
     }
 
     else if (shouldChargeSun && this.lastChange.name !== 'charging_sun') {
-      newChange = { name: 'charging_sun', deviceName: this.getName(), timestamp: new Date() };
+      newChange = Object.assign(tempChange, { name: 'charging_sun' });
     }
     else if (shouldChargeSun && this.lastChange.name === 'charging_sun') {
       stateChange = false;
     }
 
     else if (!shouldChargeSchedule && !shouldChargeSun && !shouldChargeLowPrice && this.lastChange.name !== 'waiting') {
-      newChange = { name: 'waiting', deviceName: this.getName(), timestamp: new Date() };
+      newChange = Object.assign(tempChange, { name: 'waiting' });
     }
     else {
       stateChange = false;

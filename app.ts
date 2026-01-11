@@ -15,7 +15,7 @@ type Measurement = {
   timestamp: Date;
 }
 
-module.exports = class SolarCharging extends Homey.App {
+module.exports = class SmartEnergy extends Homey.App {
 
   dbURI = `mongodb+srv://admin:${Homey.env.MONGO_PASSWORD}@cluster0.jwqp0hp.mongodb.net/?retryWrites=true&w=majority`;
   solarPanelCollection: Collection<Measurement> | undefined;
