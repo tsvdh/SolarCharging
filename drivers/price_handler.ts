@@ -1,7 +1,6 @@
 import Homey from 'homey';
 import axios from 'axios';
 import { Collection, MongoClient } from 'mongodb';
-import BeautifulDom from 'beautiful-dom';
 // eslint-disable-next-line import/extensions,import/no-unresolved,node/no-missing-import
 import Scheduler from './scheduler';
 // eslint-disable-next-line import/extensions,import/no-unresolved,node/no-missing-import
@@ -9,7 +8,7 @@ import DateHandler from './date_handler';
 
 type ApiPriceData = {
   // eslint-disable-next-line camelcase
-  datum_nl: string;
+  datum: string;
   // eslint-disable-next-line camelcase
   prijs_excl_belastingen: string;
 }
@@ -50,7 +49,7 @@ type ControlData = {
 export class PriceHandler {
 
   private static app: Homey.App;
-  private static marketDataURI = `https://jeroen.nl/api/dynamische-energieprijzen/v2/?period=__day__&type=json&key=${Homey.env.JEROEN_API_KEY}`;
+  private static marketDataURI = `https://jeroen.nl/api/dynamische-energieprijzen/?period=__day__&type=json&key=${Homey.env.JEROEN_API_KEY}`;
   private static dbURI = `mongodb+srv://admin:${Homey.env.MONGO_PASSWORD}@cluster0.jwqp0hp.mongodb.net/?retryWrites=true&w=majority`;
   private static energyPricesCollection: Collection<DbPriceData>;
   private static controlDataCollection: Collection<ControlData>;
@@ -105,7 +104,7 @@ export class PriceHandler {
 
       const todayApiResponse = await axios.get<ApiPriceData[]>(this.getMarketDataURI('vandaag'));
       const todayDbPrices = await this.transformApiPriceDataToDbPriceData(todayApiResponse.data);
-      const todayApiDate = new Date(todayApiResponse.data[0].datum_nl);
+      const todayApiDate = new Date(todayApiResponse.data[0].datum);
       await this.energyPricesCollection!.insertOne({ prices: todayDbPrices, insertionTimestamp: new Date(), timestamp: todayApiDate });
       this.fullPricesCache.set(today, this.transformDbPriceDataToHourPriceData(todayDbPrices));
     };
@@ -141,7 +140,7 @@ export class PriceHandler {
 
       const tomorrowApiResponse = await axios.get<ApiPriceData[]>(this.getMarketDataURI('morgen'));
       const tomorrowDbPrices = await this.transformApiPriceDataToDbPriceData(tomorrowApiResponse.data);
-      const tomorrowApiDate = new Date(tomorrowApiResponse.data[0].datum_nl);
+      const tomorrowApiDate = new Date(tomorrowApiResponse.data[0].datum);
       await this.energyPricesCollection!.insertOne({ prices: tomorrowDbPrices, insertionTimestamp: new Date(), timestamp: tomorrowApiDate });
       this.fullPricesCache.set(tomorrow, this.transformDbPriceDataToHourPriceData(tomorrowDbPrices));
     };
@@ -204,40 +203,7 @@ export class PriceHandler {
   }
 
   private static async getDiffWithEssent(): Promise<number> {
-    const response = await axios.get('https://www.essent.nl/dynamische-tarieven');
-    if (response.status !== 200) {
-      return PriceHandler.diffWithEssentBackup;
-    }
-
-    const parseNumber = (text: string): number => {
-      return parseFloat(text.slice(7).replace(',', '.'));
-    };
-
-    try {
-      const dom = new BeautifulDom(response.data);
-      const priceElements = dom.getElementsByClassName('dynamic-prices-info__amount');
-
-      if (priceElements.length < 3) {
-        return PriceHandler.diffWithEssentBackup;
-      }
-
-      const prices: number[] = [];
-      for (const priceElement of priceElements) {
-        prices.push(parseNumber(priceElement.innerText));
-      }
-      const lowestEssentPrice = prices.sort()[0];
-
-      if (lowestEssentPrice === undefined) {
-        return PriceHandler.diffWithEssentBackup;
-      }
-
-      const lowestMarketPrice = PriceHandler.getPrices().sort((a, b) => a.price - b.price)[0].price;
-
-      return lowestEssentPrice - lowestMarketPrice;
-    }
-    catch (e) {
-      return PriceHandler.diffWithEssentBackup;
-    }
+    return this.diffWithEssentBackup;
   }
 
   private static getPrices(): HourPriceData[] {
