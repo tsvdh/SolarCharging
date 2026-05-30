@@ -18,7 +18,7 @@ module.exports = class Device extends Homey.Device {
     const showLowPrices = async () => {
       const priceHandler = new PriceHandler(7, 23);
       const lowHours = priceHandler.getXLowest(3);
-      const averagePrice = priceHandler.getAverage();
+      const averagePrice = priceHandler.getAverageOf(lowHours);
 
       const curLang = this.homey.i18n.getLanguage();
       let text: string;
